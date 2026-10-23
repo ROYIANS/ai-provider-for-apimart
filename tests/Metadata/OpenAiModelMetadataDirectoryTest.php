@@ -6,9 +6,15 @@ namespace WordPress\OpenAiAiProvider\Tests\Metadata;
 
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
+use WordPress\AiClient\Providers\ApiBasedImplementation\AbstractApiBasedModelMetadataDirectory;
+use WordPress\AiClient\Providers\Http\Contracts\HttpTransporterInterface;
+use WordPress\AiClient\Providers\Http\DTO\ApiKeyRequestAuthentication;
+use WordPress\AiClient\Providers\Http\DTO\Request;
+use WordPress\AiClient\Providers\Http\DTO\RequestOptions;
 use WordPress\AiClient\Providers\Http\DTO\Response;
 use WordPress\AiClient\Providers\Models\DTO\ModelMetadata;
 use WordPress\AiClient\Providers\Models\DTO\SupportedOption;
+use WordPress\AiClient\Providers\Models\Enums\CapabilityEnum;
 use WordPress\AiClient\Providers\Models\Enums\OptionEnum;
 use WordPress\OpenAiAiProvider\Metadata\OpenAiModelMetadataDirectory;
 
@@ -176,6 +182,185 @@ class OpenAiModelMetadataDirectoryTest extends TestCase
                 sprintf('Expected model "gpt-5" to support the "%s" option.', $option->value)
             );
         }
+    }
+
+    /**
+     * Tests that explicit text model IDs receive metadata without listing models.
+     *
+     * The returned metadata must be identical to the metadata the models endpoint parser produces
+     * for the same ID, so that an explicitly named model behaves the same whether or not the
+     * provider models list was fetched.
+     *
+     * @dataProvider explicitTextModelIdProvider
+     *
+     * @param string $modelId The explicit text model ID.
+     */
+    public function testExplicitTextModelIdsSkipModelListing(string $modelId): void
+    {
+        $explicitMetadata = $this->createModelMetadataForExplicitModelIds([$modelId]);
+
+        $this->assertArrayHasKey($modelId, $explicitMetadata);
+        $this->assertEquals($this->parseSingleModelMetadata($modelId), $explicitMetadata[$modelId]);
+    }
+
+    /**
+     * Data provider for testExplicitTextModelIdsSkipModelListing().
+     *
+     * Model IDs are verified against a live OpenAI models response.
+     *
+     * @return array<string, array{string}> Map of test name to test data.
+     */
+    public function explicitTextModelIdProvider(): array
+    {
+        return [
+            'gpt-5.6-sol' => ['gpt-5.6-sol'],
+            'gpt-5.6-terra' => ['gpt-5.6-terra'],
+            'gpt-5.5' => ['gpt-5.5'],
+            'gpt-5.4-mini' => ['gpt-5.4-mini'],
+            'gpt-5.1-codex' => ['gpt-5.1-codex'],
+            'gpt-5-chat-latest' => ['gpt-5-chat-latest'],
+        ];
+    }
+
+    /**
+     * Tests that explicit non-text model IDs keep falling back to listing models.
+     *
+     * @dataProvider explicitNonTextModelIdProvider
+     *
+     * @param string $modelId The explicit model ID.
+     */
+    public function testExplicitNonTextModelIdsFallBackToModelListing(string $modelId): void
+    {
+        $this->assertSame([], $this->createModelMetadataForExplicitModelIds([$modelId]));
+    }
+
+    /**
+     * Data provider for testExplicitNonTextModelIdsFallBackToModelListing().
+     *
+     * @return array<string, array{string}> Map of test name to test data.
+     */
+    public function explicitNonTextModelIdProvider(): array
+    {
+        return [
+            'gpt-image-2' => ['gpt-image-2'],
+            'chatgpt-image-latest' => ['chatgpt-image-latest'],
+            'gpt-4o-mini-tts' => ['gpt-4o-mini-tts'],
+            'text-embedding-3-small' => ['text-embedding-3-small'],
+            'gpt-realtime-2' => ['gpt-realtime-2'],
+            'gpt-4o-transcribe' => ['gpt-4o-transcribe'],
+            'gpt-3.5-turbo-instruct' => ['gpt-3.5-turbo-instruct'],
+            'unknown-model' => ['some-unknown-model'],
+        ];
+    }
+
+    /**
+     * Tests that explicit text model IDs resolve through the public lookup without listing models.
+     *
+     * Requires php-ai-client 1.5.0 or later, which consults
+     * createModelMetadataForExplicitModelIds() before listing models.
+     */
+    public function testExplicitTextModelIdResolvesWithoutListingModels(): void
+    {
+        $this->skipIfExplicitModelHookIsUnavailable();
+
+        $transporter = $this->createCountingTransporter();
+        $directory = $this->createDirectoryWithTransporter($transporter);
+
+        $modelMetadata = $directory->getModelMetadata('gpt-5.5');
+
+        $this->assertContainsEquals(CapabilityEnum::textGeneration(), $modelMetadata->getSupportedCapabilities());
+        $this->assertSame(0, $transporter->sendCount);
+    }
+
+    /**
+     * Tests that explicit non-text model IDs still resolve by listing models.
+     *
+     * Requires php-ai-client 1.5.0 or later, which consults
+     * createModelMetadataForExplicitModelIds() before listing models.
+     */
+    public function testExplicitNonTextModelIdStillListsModels(): void
+    {
+        $this->skipIfExplicitModelHookIsUnavailable();
+
+        $transporter = $this->createCountingTransporter();
+        $directory = $this->createDirectoryWithTransporter($transporter);
+
+        $directory->getModelMetadata('gpt-image-2');
+
+        $this->assertSame(1, $transporter->sendCount);
+    }
+
+    /**
+     * Skips the current test when the installed PHP AI Client lacks the explicit model ID hook.
+     */
+    private function skipIfExplicitModelHookIsUnavailable(): void
+    {
+        if (method_exists(AbstractApiBasedModelMetadataDirectory::class, 'createModelMetadataForExplicitModelIds')) {
+            return;
+        }
+
+        $this->markTestSkipped('Requires php-ai-client 1.5.0 or later.');
+    }
+
+    /**
+     * Creates an HTTP transporter that counts requests and returns a models list containing gpt-image-2.
+     *
+     * @return HttpTransporterInterface&object{sendCount: int}
+     */
+    private function createCountingTransporter(): HttpTransporterInterface
+    {
+        return new class implements HttpTransporterInterface {
+            /**
+             * The number of requests sent.
+             *
+             * @var int
+             */
+            public int $sendCount = 0;
+
+            /**
+             * {@inheritDoc}
+             */
+            public function send(Request $request, ?RequestOptions $options = null): Response
+            {
+                $this->sendCount++;
+
+                return new Response(200, [], (string) json_encode(['data' => [['id' => 'gpt-image-2']]]));
+            }
+        };
+    }
+
+    /**
+     * Creates a model metadata directory bound to the given transporter and a placeholder API key.
+     *
+     * @param HttpTransporterInterface $transporter The transporter.
+     * @return OpenAiModelMetadataDirectory The directory.
+     */
+    private function createDirectoryWithTransporter(HttpTransporterInterface $transporter): OpenAiModelMetadataDirectory
+    {
+        $directory = new OpenAiModelMetadataDirectory();
+        $directory->setHttpTransporter($transporter);
+        $directory->setRequestAuthentication(new ApiKeyRequestAuthentication('test-api-key'));
+
+        return $directory;
+    }
+
+    /**
+     * Creates the explicit model metadata for the given model IDs.
+     *
+     * @param list<string> $modelIds The explicit model IDs.
+     * @return array<string, ModelMetadata> Map of model ID to explicit model metadata.
+     */
+    private function createModelMetadataForExplicitModelIds(array $modelIds): array
+    {
+        $directory = new OpenAiModelMetadataDirectory();
+
+        $method = new ReflectionMethod($directory, 'createModelMetadataForExplicitModelIds');
+        $method->setAccessible(true);
+
+        /** @var array<string, ModelMetadata> $modelMetadataMap */
+        $modelMetadataMap = $method->invoke($directory, $modelIds);
+
+        return $modelMetadataMap;
     }
 
     /**
