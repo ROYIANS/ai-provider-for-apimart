@@ -39,6 +39,15 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
         $deadline = $this->currentTime() + $timeout;
         $submission = $this->sendTaskRequest(HttpMethodEnum::POST(), 'images/generations', $params, $timeout);
         $submittedTasks = $submission['data'] ?? null;
+        // The versioned API returns one task object; the legacy envelope returns a task list.
+        if (
+            is_array($submittedTasks) && !array_is_list($submittedTasks) &&
+            ($submittedTasks['object'] ?? null) === 'generation.task' &&
+            ($submittedTasks['type'] ?? null) === 'image' &&
+            isset($submittedTasks['id'])
+        ) {
+            $submittedTasks = [['task_id' => $submittedTasks['id']]];
+        }
         if (!is_array($submittedTasks) || !array_is_list($submittedTasks) || $submittedTasks === []) {
             throw ResponseException::fromInvalidData('APIMart', 'data', 'Expected a non-empty list of image tasks.');
         }
@@ -59,11 +68,11 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
 
         $candidates = [];
         $tasks = [];
-        $expectedMimeType = $params['output_format'] === 'jpeg' ? 'image/jpeg' : 'image/png';
+        $expectedMimeType = $this->getConfig()->getOutputMimeType() ?? 'image/png';
         foreach ($taskIds as $taskId) {
             $task = $this->waitForTask($taskId, $deadline, $interval);
             $tasks[] = $task;
-            foreach ($this->imageCandidates($task, $expectedMimeType) as $candidate) {
+            foreach ($this->imageCandidates($task, $expectedMimeType, $deadline) as $candidate) {
                 $candidates[] = $candidate;
             }
         }
@@ -94,7 +103,7 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
      * Builds JSON parameters shared by generation and editing.
      *
      * @param list<Message> $prompt The prompt messages.
-     * @return array{model: string, prompt: string, n: int, size: string, output_format: string, ...}
+     * @return array<string, mixed> The validated generation parameters.
      */
     protected function prepareGenerateImageParams(array $prompt): array
     {
@@ -126,16 +135,19 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
         }
 
         $config = $this->getConfig();
-        if ($config->getOutputFileType() !== null && !$config->getOutputFileType()->isRemote()) {
-            throw new InvalidArgumentException('APIMart image generation returns remote files only.');
+        $capabilities = ApimartImageModelCapabilities::forModel($this->metadata()->getId());
+        if ($capabilities === null) {
+            throw new InvalidArgumentException('Unsupported APIMart image model: ' . $this->metadata()->getId());
         }
         $mimeType = $config->getOutputMimeType() ?? 'image/png';
-        if (!in_array($mimeType, ['image/png', 'image/jpeg'], true)) {
-            throw new InvalidArgumentException('APIMart GPT Image supports image/png and image/jpeg output only.');
+        if (!in_array($mimeType, $capabilities['mimeTypes'], true)) {
+            throw new InvalidArgumentException(
+                'This APIMart image model does not support output MIME type ' . $mimeType
+            );
         }
         $count = $config->getCandidateCount() ?? 1;
-        if ($count < 1 || $count > 4) {
-            throw new InvalidArgumentException('APIMart GPT Image candidateCount must be between 1 and 4.');
+        if (!in_array($count, $capabilities['candidateCounts'], true)) {
+            throw new InvalidArgumentException('Unsupported candidateCount for this APIMart image model.');
         }
         $params = [
             'model' => $this->metadata()->getId(),
@@ -145,8 +157,10 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
                 $config->getOutputMediaOrientation(),
                 $config->getOutputMediaAspectRatio()
             ),
-            'output_format' => $mimeType === 'image/jpeg' ? 'jpeg' : 'png',
         ];
+        if ($capabilities['outputFormat']) {
+            $params['output_format'] = substr($mimeType, strlen('image/'));
+        }
         if ($imageUrls !== []) {
             $params['image_urls'] = $imageUrls;
         }
@@ -155,18 +169,61 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
             if ($key === 'apimart_poll_timeout' || $key === 'apimart_poll_interval') {
                 continue;
             }
-            if (array_key_exists($key, $params) || $key === 'response_format') {
+            if (
+                $key === 'size' && $config->getOutputMediaOrientation() === null &&
+                $config->getOutputMediaAspectRatio() === null
+            ) {
+                if ($value === 'auto' && $capabilities['automaticSize']) {
+                    $params['size'] = $value;
+                    continue;
+                }
+                if ($capabilities['automaticSize'] && in_array($value, $capabilities['aspectRatios'], true)) {
+                    $params['size'] = $value;
+                    continue;
+                }
+                if (is_string($value) && $capabilities['pixelDimensions']) {
+                    $params['size'] = $this->validatePixelDimensions($value);
+                    continue;
+                }
+            }
+            if (array_key_exists($key, $params) || $key === 'response_format' || $key === 'output_format') {
                 throw new InvalidArgumentException(
                     'The custom option "' . $key . '" conflicts with an image parameter.'
                 );
             }
             $params[$key] = $value;
         }
+        if (isset($params['resolution'])) {
+            $resolution = $params['resolution'];
+            if (is_string($resolution)) {
+                $resolution = $capabilities['versions'] !== [] ? strtoupper($resolution) : strtolower($resolution);
+            }
+            if (!in_array($resolution, $capabilities['resolutions'], true)) {
+                throw new InvalidArgumentException('Unsupported resolution for this APIMart image model.');
+            }
+            $params['resolution'] = $resolution;
+        }
+        if (isset($params['version']) && !in_array($params['version'], $capabilities['versions'], true)) {
+            throw new InvalidArgumentException('Unsupported version for this APIMart image model.');
+        }
+        if (isset($params['quality']) && $capabilities['resolutions'] !== []) {
+            if (!in_array($params['quality'], $capabilities['qualities'], true)) {
+                throw new InvalidArgumentException('Unsupported quality for this APIMart image model.');
+            }
+        }
+        if (!$capabilities['outputFormat']) {
+            foreach (['background', 'output_compression', 'moderation'] as $key) {
+                if (array_key_exists($key, $params)) {
+                    throw new InvalidArgumentException('This APIMart image model does not support ' . $key . '.');
+                }
+            }
+        }
         if (isset($params['image_urls'])) {
             $urls = $params['image_urls'];
-            if (!is_array($urls) || !array_is_list($urls) || count($urls) < 1 || count($urls) > 15) {
+            $maximum = $capabilities['maxReferenceImages'];
+            if (!is_array($urls) || !array_is_list($urls) || count($urls) < 1 || count($urls) > $maximum) {
                 throw new InvalidArgumentException(
-                    'APIMart image_urls must contain between 1 and 15 public image URLs.'
+                    'APIMart image_urls must contain between 1 and ' . $maximum . ' public image URLs.'
                 );
             }
             foreach ($urls as $url) {
@@ -177,6 +234,7 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
         }
         if (isset($params['mask_url'])) {
             if (
+                !$capabilities['mask'] ||
                 !isset($params['image_urls']) ||
                 !is_string($params['mask_url']) ||
                 !$this->isPublicHttpUrl($params['mask_url'])
@@ -186,11 +244,10 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
                 );
             }
         }
-        if (($params['background'] ?? null) === 'transparent' && $params['output_format'] === 'jpeg') {
-            throw new InvalidArgumentException('APIMart transparent backgrounds require PNG output.');
+        if (($params['background'] ?? null) === 'transparent' && $mimeType === 'image/jpeg') {
+            throw new InvalidArgumentException('APIMart transparent backgrounds require PNG or WebP output.');
         }
 
-        /** @var array{model: string, prompt: string, n: int, size: string, output_format: string, ...} $params */
         return $params;
     }
 
@@ -199,9 +256,14 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
      */
     protected function prepareSizeParam(?MediaOrientationEnum $orientation, ?string $aspectRatio): string
     {
+        $capabilities = ApimartImageModelCapabilities::forModel($this->metadata()->getId());
         if ($aspectRatio !== null) {
-            if (!in_array($aspectRatio, ['1:1', '2:3', '3:2'], true)) {
-                throw new InvalidArgumentException('APIMart GPT Image supports aspect ratios 1:1, 2:3 and 3:2.');
+            if (
+                $capabilities === null ||
+                (!in_array($aspectRatio, $capabilities['aspectRatios'], true) &&
+                    !($aspectRatio === 'auto' && $capabilities['automaticSize']))
+            ) {
+                throw new InvalidArgumentException('Unsupported aspect ratio for this APIMart image model.');
             }
             return $aspectRatio;
         }
@@ -214,6 +276,27 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
             }
         }
         return '1:1';
+    }
+
+    /**
+     * @param string $size Exact GPT Image 2.5 pixel dimensions.
+     * @return string The validated size.
+     */
+    private function validatePixelDimensions(string $size): string
+    {
+        if (preg_match('/^(\d{1,4})x(\d{1,4})$/', $size, $matches)) {
+            $width = (int) $matches[1];
+            $height = (int) $matches[2];
+            $pixels = $width * $height;
+            if (
+                $width >= 16 && $height >= 16 && $width <= 3840 && $height <= 3840 &&
+                $width % 16 === 0 && $height % 16 === 0 && max($width, $height) <= min($width, $height) * 3 &&
+                $pixels >= 655360 && $pixels <= 8294400
+            ) {
+                return $size;
+            }
+        }
+        throw new InvalidArgumentException('Invalid exact pixel dimensions for APIMart GPT Image 2.5.');
     }
 
     /**
@@ -259,7 +342,7 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
                     ? ': ' . $error['message'] : '';
                 throw new RuntimeException('APIMart image task "' . $taskId . '" ' . $task['status'] . $message);
             }
-            if (!in_array($task['status'], ['submitted', 'pending', 'processing'], true)) {
+            if (!in_array($task['status'], ['submitted', 'pending', 'processing', 'in_progress'], true)) {
                 throw ResponseException::fromInvalidData('APIMart', 'data.status', 'Unrecognized task status.');
             }
             $remaining = $deadline - $this->currentTime();
@@ -312,7 +395,7 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
         if ($data === null) {
             throw ResponseException::fromInvalidData('APIMart', 'response', 'Expected a JSON object.');
         }
-        if (isset($data['error']) || (isset($data['code']) && $data['code'] !== 200)) {
+        if (isset($data['error']) || (isset($data['code']) && !in_array($data['code'], [200, 202], true))) {
             $error = $data['error'] ?? null;
             $message = is_array($error) && isset($error['message']) && is_string($error['message'])
                 ? $error['message'] : 'Unsuccessful API response.';
@@ -324,9 +407,10 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
     /**
      * @param array<string, mixed> $task A completed image task.
      * @param string $mimeType The requested output MIME type.
+     * @param float $deadline The generation and download deadline.
      * @return list<Candidate> The generated image candidates.
      */
-    private function imageCandidates(array $task, string $mimeType): array
+    private function imageCandidates(array $task, string $mimeType, float $deadline): array
     {
         $result = $task['result'] ?? null;
         $images = is_array($result) ? ($result['images'] ?? null) : null;
@@ -347,10 +431,74 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
                         'Invalid image URL.'
                     );
                 }
-                $candidates[] = $this->parseResponseChoiceToCandidate(['url' => $url], count($candidates), $mimeType);
+                $fileType = $this->getConfig()->getOutputFileType();
+                $candidates[] = $fileType !== null && $fileType->isInline()
+                    ? $this->downloadImageCandidate($url, $mimeType, count($candidates), $deadline)
+                    : $this->parseResponseChoiceToCandidate(['url' => $url], count($candidates), $mimeType);
             }
         }
         return $candidates;
+    }
+
+    /**
+     * Downloads an output image for callers such as WordPress that require inline base64 data.
+     *
+     * This request intentionally never passes through APIMart request authentication. The SDK
+     * transporter buffers response bodies, so the size limit is checked before base64 conversion.
+     *
+     * @param string $url The already validated public output URL.
+     * @param string $mimeType The expected image MIME type.
+     * @param int $index The candidate index.
+     * @param float $deadline The shared generation and download deadline.
+     * @return Candidate The inline image candidate.
+     */
+    private function downloadImageCandidate(string $url, string $mimeType, int $index, float $deadline): Candidate
+    {
+        $remaining = $deadline - $this->currentTime();
+        if ($remaining <= 0) {
+            throw new RuntimeException('Timed out before downloading the APIMart generated image.');
+        }
+        $options = $this->getRequestOptions();
+        $options = $options === null ? new RequestOptions() : clone $options;
+        $configuredTimeout = $options->getTimeout();
+        $options->setTimeout(
+            $configuredTimeout !== null && $configuredTimeout > 0 ? min($configuredTimeout, $remaining) : $remaining
+        );
+        $connectTimeout = $options->getConnectTimeout();
+        if ($connectTimeout !== null && $connectTimeout > 0) {
+            $options->setConnectTimeout(min($connectTimeout, $remaining));
+        }
+        // Redirect targets would need their own public-URL validation.
+        $options->setMaxRedirects(0);
+        $request = new Request(HttpMethodEnum::GET(), $url, ['Accept' => $mimeType], null, $options);
+        $response = $this->getHttpTransporter()->send($request);
+        $this->throwIfNotSuccessful($response);
+
+        $contentType = strtolower(trim(
+            explode(';', $response->getHeaderAsString('Content-Type') ?? '')[0],
+            " \f\n\r\t\v\x00"
+        ));
+        if ($contentType !== $mimeType || !in_array($contentType, ['image/png', 'image/jpeg', 'image/webp'], true)) {
+            throw ResponseException::fromInvalidData(
+                'APIMart',
+                'image.Content-Type',
+                'Downloaded image Content-Type must match the requested supported image format.'
+            );
+        }
+        $body = $response->getBody();
+        $contentLength = $response->getHeaderAsString('Content-Length');
+        $maximum = 32 * 1024 * 1024;
+        if (
+            $body === null || $body === '' || strlen($body) > $maximum ||
+            ($contentLength !== null && ctype_digit($contentLength) && (float) $contentLength > $maximum)
+        ) {
+            throw ResponseException::fromInvalidData(
+                'APIMart',
+                'image.body',
+                'Downloaded images must be non-empty and no larger than 32 MiB.'
+            );
+        }
+        return $this->parseResponseChoiceToCandidate(['b64_json' => base64_encode($body)], $index, $contentType);
     }
 
     /**

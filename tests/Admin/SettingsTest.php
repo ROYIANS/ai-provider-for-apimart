@@ -5,7 +5,16 @@ declare(strict_types=1);
 namespace WordPress\ApimartAiProvider\Tests\Admin;
 
 use PHPUnit\Framework\TestCase;
+use Psr\SimpleCache\CacheInterface;
+use ReflectionProperty;
+use RuntimeException;
+use WordPress\AiClient\AiClient;
+use WordPress\AiClient\Providers\AbstractProvider;
+use WordPress\AiClient\Providers\Contracts\ModelMetadataDirectoryInterface;
+use WordPress\AiClient\Providers\Http\Contracts\HttpTransporterInterface;
+use WordPress\AiClient\Providers\Http\DTO\ApiKeyRequestAuthentication;
 use WordPress\ApimartAiProvider\Admin\Settings;
+use WordPress\ApimartAiProvider\Metadata\ApimartModelMetadataDirectory;
 use WordPress\ApimartAiProvider\Provider\ApimartProvider;
 
 /**
@@ -14,6 +23,7 @@ use WordPress\ApimartAiProvider\Provider\ApimartProvider;
 class SettingsTest extends TestCase
 {
     public static bool $allowed = true;
+    public static bool $validNonce = true;
 
     /** @var mixed */
     public static $saved;
@@ -30,12 +40,31 @@ class SettingsTest extends TestCase
     /** @var string|false */
     private $originalBaseUrl;
 
+    /** @var array<string, mixed> */
+    private array $originalQuery;
+
+    private ?CacheInterface $originalCache;
+
+    /** @var array<mixed> */
+    private array $originalDirectories;
+
+    private ReflectionProperty $directoryCache;
+
     protected function setUp(): void
     {
         parent::setUp();
         $this->originalBaseUrl = getenv('APIMART_BASE_URL');
         putenv('APIMART_BASE_URL');
+        $this->originalQuery = $_GET;
+        $_GET = [];
+        $this->originalCache = AiClient::getCache();
+        $this->directoryCache = new ReflectionProperty(AbstractProvider::class, 'modelMetadataDirectoryCache');
+        if (PHP_VERSION_ID < 80100) {
+            $this->directoryCache->setAccessible(true);
+        }
+        $this->originalDirectories = $this->directoryCache->getValue();
         SettingsTest::$allowed = true;
+        SettingsTest::$validNonce = true;
         SettingsTest::$saved = ApimartProvider::DEFAULT_BASE_URL;
         SettingsTest::$calls = [];
         SettingsTest::$fields = [];
@@ -45,6 +74,9 @@ class SettingsTest extends TestCase
     protected function tearDown(): void
     {
         putenv($this->originalBaseUrl === false ? 'APIMART_BASE_URL' : 'APIMART_BASE_URL=' . $this->originalBaseUrl);
+        $_GET = $this->originalQuery;
+        AiClient::setCache($this->originalCache);
+        $this->directoryCache->setValue(null, $this->originalDirectories);
         parent::tearDown();
     }
 
@@ -56,6 +88,7 @@ class SettingsTest extends TestCase
         $this->assertSame([
             ['add_action', 'admin_menu', [Settings::class, 'addPage']],
             ['add_action', 'admin_init', [Settings::class, 'registerSettings']],
+            ['add_action', 'admin_post_apimart_refresh_models', [Settings::class, 'refreshModels']],
         ], SettingsTest::$calls);
     }
 
@@ -163,6 +196,15 @@ class SettingsTest extends TestCase
         $this->assertStringContainsString('&lt;script&gt;translated&lt;/script&gt;', $html);
         $this->assertStringNotContainsString('<script>', $html);
         $this->assertStringContainsString('type="submit"', $html);
+        $this->assertStringContainsString(
+            '<form action="https://example.test/wp-admin/admin-post.php" method="post">',
+            $html
+        );
+        $this->assertStringContainsString('name="action" value="apimart_refresh_models"', $html);
+        $this->assertStringContainsString('test-refresh-nonce', $html);
+        $this->assertContains(['wp_nonce_field', 'apimart_refresh_models'], SettingsTest::$calls);
+        $this->assertStringContainsString('Refresh model list', $html);
+        $this->assertStringContainsString('this does not generate content', $html);
     }
 
     public function testExternalOverrideDisablesSelectorAndPreservesSavedChoice(): void
@@ -182,13 +224,148 @@ class SettingsTest extends TestCase
             . '" value="https://api.apib.ai/v1">',
             $html
         );
-        $this->assertStringNotContainsString('type="submit"', $html);
+        $this->assertStringNotContainsString('Save Changes', $html);
+        $this->assertStringContainsString('Refresh model list', $html);
         $this->assertSame('https://api.apib.ai/v1', SettingsTest::$saved);
+    }
+
+    public function testRefreshClearsTheCurrentCatalogWithoutNetworkOrGenerationRequests(): void
+    {
+        $cache = $this->createMock(CacheInterface::class);
+        $cache->expects($this->once())->method('delete')->with($this->callback(static function (string $key): bool {
+            return $key !== '' && strpos($key, 'test-refresh-secret') === false;
+        }))->willReturn(true);
+        $cache->expects($this->never())->method('get');
+        $cache->expects($this->never())->method('set');
+        $this->configureRefreshDirectory($cache);
+
+        $this->runRefreshUntilRedirect();
+
+        $this->assertSame([
+            ['check_admin_referer', 'apimart_refresh_models'],
+            ['wp_safe_redirect', 'https://example.test/wp-admin/options-general.php'
+                . '?page=ai-provider-for-apimart&catalog-refreshed=1'],
+        ], SettingsTest::$calls);
+    }
+
+    public function testRefreshRejectsUnprivilegedUsersBeforeCheckingNonceOrClearingCache(): void
+    {
+        $cache = $this->createMock(CacheInterface::class);
+        $cache->expects($this->never())->method('delete');
+        $this->configureRefreshDirectory($cache);
+        SettingsTest::$allowed = false;
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('You are not allowed to refresh the APIMart model list.');
+        Settings::refreshModels();
+    }
+
+    public function testRefreshRejectsInvalidNonceBeforeClearingCache(): void
+    {
+        $cache = $this->createMock(CacheInterface::class);
+        $cache->expects($this->never())->method('delete');
+        $this->configureRefreshDirectory($cache);
+        SettingsTest::$validNonce = false;
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Invalid nonce.');
+        Settings::refreshModels();
+    }
+
+    public function testRefreshFailureRedirectsToAGenericNoticeWithoutExceptionDetails(): void
+    {
+        $cache = $this->createMock(CacheInterface::class);
+        $cache->expects($this->once())->method('delete')->willThrowException(
+            new RuntimeException('Backend failed for test-refresh-secret')
+        );
+        $this->configureRefreshDirectory($cache);
+
+        $this->runRefreshUntilRedirect();
+
+        $this->assertSame([
+            ['check_admin_referer', 'apimart_refresh_models'],
+            ['wp_safe_redirect', 'https://example.test/wp-admin/options-general.php'
+                . '?page=ai-provider-for-apimart&catalog-refresh-error=1'],
+        ], SettingsTest::$calls);
+    }
+
+    public function testRefreshRejectsDirectoriesWithoutCacheInvalidationSupport(): void
+    {
+        $directory = $this->createMock(ModelMetadataDirectoryInterface::class);
+        $directory->expects($this->never())->method('listModelMetadata');
+        $directory->expects($this->never())->method('getModelMetadata');
+        $directories = $this->originalDirectories;
+        $directories[ApimartProvider::class] = $directory;
+        $this->directoryCache->setValue(null, $directories);
+
+        $this->runRefreshUntilRedirect();
+
+        $this->assertSame([
+            ['check_admin_referer', 'apimart_refresh_models'],
+            ['wp_safe_redirect', 'https://example.test/wp-admin/options-general.php'
+                . '?page=ai-provider-for-apimart&catalog-refresh-error=1'],
+        ], SettingsTest::$calls);
+    }
+
+    public function testRefreshNoticesUseFixedEscapedCopyAndExactQueryValues(): void
+    {
+        $_GET['catalog-refreshed'] = '1';
+        SettingsTest::$translations['The cached APIMart model list was cleared. '
+            . 'Reopen model selection to load the current list.'] = '<script>notice</script>';
+
+        ob_start();
+        Settings::renderPage();
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('notice-success', $html);
+        $this->assertStringContainsString('&lt;script&gt;notice&lt;/script&gt;', $html);
+        $this->assertStringNotContainsString('<script>', $html);
+
+        $_GET = ['catalog-refreshed' => '<script>query</script>', 'catalog-refresh-error' => ['1']];
+        ob_start();
+        Settings::renderPage();
+        $html = (string) ob_get_clean();
+
+        $this->assertStringNotContainsString('notice-success', $html);
+        $this->assertStringNotContainsString('notice-error', $html);
+        $this->assertStringNotContainsString('query', $html);
+
+        $_GET = ['catalog-refresh-error' => '1'];
+        ob_start();
+        Settings::renderPage();
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('notice-error', $html);
+        $this->assertStringContainsString('The APIMart model cache could not be cleared.', $html);
+    }
+
+    private function configureRefreshDirectory(CacheInterface $cache): void
+    {
+        $directory = new ApimartModelMetadataDirectory();
+        $directory->setRequestAuthentication(new ApiKeyRequestAuthentication('test-refresh-secret'));
+        $transporter = $this->createMock(HttpTransporterInterface::class);
+        $transporter->expects($this->never())->method('send');
+        $directory->setHttpTransporter($transporter);
+        $directories = $this->originalDirectories;
+        $directories[ApimartProvider::class] = $directory;
+        $this->directoryCache->setValue(null, $directories);
+        AiClient::setCache($cache);
+    }
+
+    private function runRefreshUntilRedirect(): void
+    {
+        try {
+            Settings::refreshModels();
+            $this->fail('The admin-post handler must redirect and stop execution.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('Redirected.', $exception->getMessage());
+        }
     }
 }
 
 namespace WordPress\ApimartAiProvider\Admin;
 
+use RuntimeException;
 use WordPress\ApimartAiProvider\Provider\ApimartProvider;
 use WordPress\ApimartAiProvider\Tests\Admin\SettingsTest;
 
@@ -282,7 +459,36 @@ function do_settings_sections(string $page): void
     }
 }
 
-function submit_button(): void
+function wp_nonce_field(string $action): string
 {
-    echo '<button type="submit">Save Changes</button>';
+    SettingsTest::$calls[] = ['wp_nonce_field', $action];
+    $html = '<input type="hidden" name="_wpnonce" value="test-refresh-nonce">';
+    echo $html;
+    return $html;
+}
+
+function check_admin_referer(string $action): int
+{
+    SettingsTest::$calls[] = ['check_admin_referer', $action];
+    if (!SettingsTest::$validNonce) {
+        throw new RuntimeException('Invalid nonce.');
+    }
+    return 1;
+}
+
+function wp_die(string $message): void
+{
+    SettingsTest::$calls[] = ['wp_die', $message];
+    throw new RuntimeException($message);
+}
+
+function wp_safe_redirect(string $location): bool
+{
+    SettingsTest::$calls[] = ['wp_safe_redirect', $location];
+    throw new RuntimeException('Redirected.');
+}
+
+function submit_button(string $text = 'Save Changes', string $type = 'primary'): void
+{
+    echo '<button type="submit" class="' . esc_attr($type) . '">' . esc_html($text) . '</button>';
 }

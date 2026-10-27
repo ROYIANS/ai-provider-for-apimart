@@ -52,7 +52,7 @@ class ApimartModelMetadataDirectoryTest extends TestCase
             ['id' => 'embedding', 'category' => 'chat', 'capability_tags' => ['Embedding']],
             ['id' => 'video-model', 'category' => 'video', 'capability_tags' => ['Text to Video']],
             ['id' => 'other-image', 'category' => 'image', 'capability_tags' => ['Text to Image']],
-            ['id' => 'gpt-image-2', 'category' => 'image', 'capability_tags' => ['Text to Image']],
+            ['id' => 'gpt-image-3-unverified', 'category' => 'image', 'capability_tags' => ['Text to Image']],
             ['id' => 'other-tts', 'category' => 'audio', 'capability_tags' => ['Audio']],
         ]);
 
@@ -81,6 +81,79 @@ class ApimartModelMetadataDirectoryTest extends TestCase
         }
     }
 
+    public function testIncompleteCategoriesUseExplicitTagsAndVerifiedTextContracts(): void
+    {
+        $directory = $this->directoryForModels([
+            ['id' => 'uncatalogued-text', 'category' => 'unknown', 'capability_tags' => ['Text']],
+            ['id' => 'uncatalogued-vision', 'capability_tags' => ['Vision']],
+            ['id' => 'gpt-6-luna', 'category' => 'unknown'],
+            ['id' => 'unknown-embedding', 'capability_tags' => ['Embedding']],
+            ['id' => 'unknown-model'],
+            ['id' => 'audio-with-text', 'category' => 'audio', 'capability_tags' => ['Text']],
+        ]);
+
+        $this->assertSame(['gpt-6-luna', 'uncatalogued-text', 'uncatalogued-vision'], array_map(
+            static function (ModelMetadata $model): string {
+                return $model->getId();
+            },
+            $directory->listModelMetadata()
+        ));
+        $this->assertEquals(
+            [[ModalityEnum::text()]],
+            $this->optionValues($directory->getModelMetadata('gpt-6-luna'), OptionEnum::inputModalities())
+        );
+        $this->assertEquals(
+            [[ModalityEnum::text()], [ModalityEnum::text(), ModalityEnum::image()]],
+            $this->optionValues($directory->getModelMetadata('uncatalogued-vision'), OptionEnum::inputModalities())
+        );
+    }
+
+    public function testVerifiedFallbackDoesNotAddModelsOutsideTheKeysCatalog(): void
+    {
+        $directory = $this->directoryForModels([
+            ['id' => 'one-permitted-model', 'category' => 'chat'],
+        ]);
+
+        $this->assertFalse($directory->hasModelMetadata('gpt-6-luna'));
+        $this->assertFalse($directory->hasModelMetadata('gpt-image-2'));
+        $this->assertCount(1, $directory->listModelMetadata());
+    }
+
+    /**
+     * @dataProvider newImageContractProvider
+     * @param list<int> $counts The documented candidate counts.
+     * @param list<string> $mimeTypes The documented output MIME types.
+     */
+    public function testNewImageModelsExposeTheirOwnContracts(string $id, array $counts, array $mimeTypes): void
+    {
+        $directory = $this->directoryForModels([
+            ['id' => $id, 'category' => 'unknown', 'capability_tags' => ['Image to Image']],
+        ]);
+        $model = $directory->getModelMetadata($id);
+
+        $this->assertContainsEquals(CapabilityEnum::imageGeneration(), $model->getSupportedCapabilities());
+        $this->assertSame($counts, $this->optionValues($model, OptionEnum::candidateCount()));
+        $this->assertSame($mimeTypes, $this->optionValues($model, OptionEnum::outputMimeType()));
+        $this->assertContains('16:9', $this->optionValues($model, OptionEnum::outputMediaAspectRatio()));
+        $this->assertEquals(
+            [[ModalityEnum::text()], [ModalityEnum::text(), ModalityEnum::image()]],
+            $this->optionValues($model, OptionEnum::inputModalities())
+        );
+    }
+
+    /** @return array<string, array{string, list<int>, list<string>}> Verified contracts. */
+    public function newImageContractProvider(): array
+    {
+        return [
+            '2' => ['gpt-image-2', [1], ['image/png']],
+            '2 ext alias' => ['gpt-image-2-ext', [1], ['image/png']],
+            '2 official' => ['gpt-image-2-official', [1, 2, 3, 4], ['image/png', 'image/jpeg', 'image/webp']],
+            '2.5 flare' => ['gpt-image-2.5-flare', [1, 2, 3, 4], ['image/png', 'image/jpeg', 'image/webp']],
+            '2.5 sunburst' => ['gpt-image-2.5-sunburst', [1, 2, 3, 4], ['image/png', 'image/jpeg', 'image/webp']],
+            '2.5 ext' => ['gpt-image-2.5-ext', [1, 2, 3, 4], ['image/png']],
+        ];
+    }
+
     public function testImageMetadataMatchesVerifiedAsynchronousContract(): void
     {
         $directory = $this->directoryForModels([
@@ -96,7 +169,10 @@ class ApimartModelMetadataDirectoryTest extends TestCase
         $this->assertContainsEquals(CapabilityEnum::imageGeneration(), $model->getSupportedCapabilities());
         $this->assertSame([1, 2, 3, 4], $this->optionValues($model, OptionEnum::candidateCount()));
         $this->assertSame(['image/png', 'image/jpeg'], $this->optionValues($model, OptionEnum::outputMimeType()));
-        $this->assertEquals([FileTypeEnum::remote()], $this->optionValues($model, OptionEnum::outputFileType()));
+        $this->assertEquals(
+            [FileTypeEnum::remote(), FileTypeEnum::inline()],
+            $this->optionValues($model, OptionEnum::outputFileType())
+        );
         $this->assertSame(['1:1', '3:2', '2:3'], $this->optionValues($model, OptionEnum::outputMediaAspectRatio()));
         $this->assertEquals(
             [[ModalityEnum::text()], [ModalityEnum::text(), ModalityEnum::image()]],
@@ -228,6 +304,42 @@ class ApimartModelMetadataDirectoryTest extends TestCase
         } finally {
             AiClient::setCache($previousCache);
             putenv($previousEnvironment === false ? 'APIMART_BASE_URL' : 'APIMART_BASE_URL=' . $previousEnvironment);
+        }
+    }
+
+    public function testAnUpgradeDoesNotReuseThePreviousAdaptersFilteredCatalog(): void
+    {
+        $request = (new ApiKeyRequestAuthentication('test-api-key'))->authenticateRequest(
+            new Request(
+                \WordPress\AiClient\Providers\Http\Enums\HttpMethodEnum::GET(),
+                'https://api.apimart.ai/v1/models?expand=category'
+            )
+        );
+        $oldKey = 'ai_client_' . AiClient::VERSION . '_' . md5(ApimartModelMetadataDirectory::class)
+            . '_' . hash('sha256', serialize([$request->getUri(), $request->getHeaders()])) . '_models';
+        $cache = $this->createMock(CacheInterface::class);
+        $cache->method('has')->willReturnCallback(static function (string $key) use ($oldKey): bool {
+            return $key === $oldKey;
+        });
+        $cache->expects($this->never())->method('get');
+        $cache->expects($this->once())->method('set')->with(
+            $this->logicalNot($this->equalTo($oldKey)),
+            $this->callback(static function (array $models): bool {
+                return isset($models['gpt-image-2'], $models['gpt-6-luna']);
+            }),
+            86400
+        )->willReturn(true);
+
+        $previousCache = AiClient::getCache();
+        AiClient::setCache($cache);
+        try {
+            $directory = $this->directoryForModels([
+                ['id' => 'gpt-image-2', 'category' => 'image'],
+                ['id' => 'gpt-6-luna', 'category' => 'chat'],
+            ]);
+            $this->assertCount(2, $directory->listModelMetadata());
+        } finally {
+            AiClient::setCache($previousCache);
         }
     }
 

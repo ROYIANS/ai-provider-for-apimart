@@ -99,6 +99,62 @@ class ProviderIntegrationTest extends TestCase
         $this->assertSame('catalog-chat-model', $this->requests[1]->getData()['model']);
     }
 
+    public function testUncategorizedGptSixLunaCanBeSelectedAndSentWithoutSubstitution(): void
+    {
+        $registry = $this->registerProviderWithFakeTransporter(2);
+
+        AiClient::prompt('Explain WordPress hooks.')
+            ->usingModel($registry->getProviderModel('apimart', 'gpt-6-luna'))
+            ->generateText();
+
+        $this->assertSame('gpt-6-luna', $this->requests[1]->getData()['model']);
+        $this->assertSame($this->baseUrl . '/chat/completions', $this->requests[1]->getUri());
+    }
+
+    /** @dataProvider newImageModelProvider */
+    public function testNewImageModelCanBeSelectedAndSubmittedWithoutSubstitution(string $modelId): void
+    {
+        $registry = $this->registerProviderWithFakeTransporter(3);
+
+        $result = AiClient::prompt('A lighthouse.')
+            ->usingModel($registry->getProviderModel('apimart', $modelId))
+            ->asOutputMediaAspectRatio('16:9')
+            ->asOutputMimeType('image/png')
+            ->generateImageResult();
+
+        $this->assertSame($modelId, $this->requests[1]->getData()['model']);
+        $this->assertSame('16:9', $this->requests[1]->getData()['size']);
+        $this->assertSame($modelId, $result->getModelMetadata()->getId());
+        $this->assertSame('https://cdn.example.com/generated.png', $result->toImageFile()->getUrl());
+    }
+
+    /** @return array<string, array{string}> Newly supported catalog IDs. */
+    public function newImageModelProvider(): array
+    {
+        return [
+            '2' => ['gpt-image-2'],
+            '2 ext' => ['gpt-image-2-ext'],
+            '2 official' => ['gpt-image-2-official'],
+            '2.5 flare' => ['gpt-image-2.5-flare'],
+            '2.5 sunburst' => ['gpt-image-2.5-sunburst'],
+            '2.5 ext' => ['gpt-image-2.5-ext'],
+        ];
+    }
+
+    public function testWordPressStyleInlineRequirementReturnsBase64WithoutSendingApiCredentialsToTheImageHost(): void
+    {
+        $registry = $this->registerProviderWithFakeTransporter(4);
+
+        $result = AiClient::prompt('A lighthouse.')
+            ->usingModel($registry->getProviderModel('apimart', 'gpt-image-2.5-flare'))
+            ->asOutputFileType(FileTypeEnum::inline())
+            ->generateImageResult();
+
+        $this->assertTrue($result->toImageFile()->isInline());
+        $this->assertSame('fixture-image-data', base64_decode($result->toImageFile()->getBase64Data(), true));
+        $this->assertSame('https://cdn.example.com/generated.png', $this->requests[3]->getUri());
+    }
+
     /**
      * @dataProvider endpointProvider
      */
@@ -190,7 +246,11 @@ class ProviderIntegrationTest extends TestCase
         $transporter->expects($this->exactly($requestCount))->method('send')->willReturnCallback(
             function (Request $request): Response {
                 $this->requests[] = $request;
-                $this->assertSame('Bearer test-key', $request->getHeaderAsString('Authorization'));
+                if ($request->getUri() === 'https://cdn.example.com/generated.png') {
+                    $this->assertNull($request->getHeaderAsString('Authorization'));
+                } else {
+                    $this->assertSame('Bearer test-key', $request->getHeaderAsString('Authorization'));
+                }
                 return $this->responseForRequest($request);
             }
         );
@@ -217,7 +277,14 @@ class ProviderIntegrationTest extends TestCase
                     // Sorts first so text preferences must actually choose the requested model.
                     ['id' => 'another-chat-model', 'category' => 'chat', 'capability_tags' => ['Text']],
                     ['id' => 'catalog-chat-model', 'category' => 'chat', 'capability_tags' => ['Text']],
+                    ['id' => 'gpt-6-luna', 'category' => 'unknown'],
                     ['id' => 'gpt-image-1-official', 'category' => 'image', 'capability_tags' => ['Text to Image']],
+                    ['id' => 'gpt-image-2', 'category' => 'image', 'capability_tags' => ['Text to Image']],
+                    ['id' => 'gpt-image-2-ext', 'category' => 'image', 'capability_tags' => ['Text to Image']],
+                    ['id' => 'gpt-image-2-official', 'category' => 'image', 'capability_tags' => ['Text to Image']],
+                    ['id' => 'gpt-image-2.5-flare', 'category' => 'image', 'capability_tags' => ['Text to Image']],
+                    ['id' => 'gpt-image-2.5-sunburst', 'category' => 'image', 'capability_tags' => ['Text to Image']],
+                    ['id' => 'gpt-image-2.5-ext', 'category' => 'image', 'capability_tags' => ['Text to Image']],
                     ['id' => 'gpt-4o-mini-tts', 'category' => 'audio', 'capability_tags' => ['Audio']],
                     ['id' => 'unknown-model', 'category' => 'unknown'],
                 ]]);
@@ -248,6 +315,8 @@ class ProviderIntegrationTest extends TestCase
                 ]]);
             case $this->baseUrl . '/audio/speech':
                 return new Response(200, ['Content-Type' => 'audio/wav'], 'RIFF-fake-audio');
+            case 'https://cdn.example.com/generated.png':
+                return new Response(200, ['Content-Type' => 'image/png'], 'fixture-image-data');
             default:
                 $this->fail('Unexpected HTTP request: ' . $request->getUri());
         }

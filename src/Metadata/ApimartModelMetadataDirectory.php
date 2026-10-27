@@ -16,24 +16,23 @@ use WordPress\AiClient\Providers\Models\DTO\SupportedOption;
 use WordPress\AiClient\Providers\Models\Enums\CapabilityEnum;
 use WordPress\AiClient\Providers\Models\Enums\OptionEnum;
 use WordPress\AiClient\Providers\OpenAiCompatibleImplementation\AbstractOpenAiCompatibleModelMetadataDirectory;
+use WordPress\ApimartAiProvider\Models\ApimartImageModelCapabilities;
 use WordPress\ApimartAiProvider\Provider\ApimartProvider;
 
 /**
  * Discovers models using APIMart's server-provided category and capability tags.
  *
- * Unknown categories and unsupported endpoints are omitted. Explicit IDs still
- * resolve through this catalog, so no model capabilities are inferred from names.
+ * Incomplete categories use explicit tags or individually verified contracts.
+ * Every model must still be present in the authenticated catalog.
  *
  * @since 0.1.0
  */
 class ApimartModelMetadataDirectory extends AbstractOpenAiCompatibleModelMetadataDirectory
 {
     /**
-     * Image models whose asynchronous generation contract has been verified in the documentation.
-     *
-     * @var list<string>
+     * Invalidates parsed metadata when the adapter's supported model contracts change.
      */
-    private const IMAGE_MODEL_IDS = ['gpt-image-1-official', 'gpt-image-1.5-official'];
+    private const CATALOG_SCHEMA_VERSION = 2;
 
     /**
      * {@inheritDoc}
@@ -59,7 +58,7 @@ class ApimartModelMetadataDirectory extends AbstractOpenAiCompatibleModelMetadat
         $request = $this->createRequest(HttpMethodEnum::GET(), 'models');
         $request = $this->getRequestAuthentication()->authenticateRequest($request);
 
-        return parent::getBaseCacheKey() . '_' . hash('sha256', serialize([
+        return parent::getBaseCacheKey() . '_catalog_' . self::CATALOG_SCHEMA_VERSION . '_' . hash('sha256', serialize([
             $request->getUri(),
             $request->getHeaders(),
         ]));
@@ -127,7 +126,12 @@ class ApimartModelMetadataDirectory extends AbstractOpenAiCompatibleModelMetadat
      */
     private function createModelMetadata(string $id, string $category, array $tags): ?ModelMetadata
     {
-        if ($category === 'chat') {
+        // APIMart documents unknown-category entries as callable. Its public GPT
+        // catalog independently confirms gpt-6-luna as text, without proving vision.
+        $uncategorizedText = $category === 'unknown' && (
+            in_array('Text', $tags, true) || in_array('Vision', $tags, true) || $id === 'gpt-6-luna'
+        );
+        if ($category === 'chat' || $uncategorizedText) {
             // Embedding-only entries share the chat category, but use a different API.
             if (in_array('Embedding', $tags, true) && !in_array('Text', $tags, true)) {
                 return null;
@@ -139,7 +143,8 @@ class ApimartModelMetadataDirectory extends AbstractOpenAiCompatibleModelMetadat
                 $this->textOptions(in_array('Vision', $tags, true))
             );
         }
-        if ($category === 'image' && in_array($id, self::IMAGE_MODEL_IDS, true)) {
+        $imageContract = ApimartImageModelCapabilities::forModel($id);
+        if (($category === 'image' || $category === 'unknown') && $imageContract !== null) {
             $inputModalities = [[ModalityEnum::text()]];
             if (in_array('Image to Image', $tags, true)) {
                 $inputModalities[] = [ModalityEnum::text(), ModalityEnum::image()];
@@ -147,15 +152,15 @@ class ApimartModelMetadataDirectory extends AbstractOpenAiCompatibleModelMetadat
             return new ModelMetadata($id, $id, [CapabilityEnum::imageGeneration()], [
                 new SupportedOption(OptionEnum::inputModalities(), $inputModalities),
                 new SupportedOption(OptionEnum::outputModalities(), [[ModalityEnum::image()]]),
-                new SupportedOption(OptionEnum::candidateCount(), [1, 2, 3, 4]),
-                new SupportedOption(OptionEnum::outputMimeType(), ['image/png', 'image/jpeg']),
-                new SupportedOption(OptionEnum::outputFileType(), [FileTypeEnum::remote()]),
+                new SupportedOption(OptionEnum::candidateCount(), $imageContract['candidateCounts']),
+                new SupportedOption(OptionEnum::outputMimeType(), $imageContract['mimeTypes']),
+                new SupportedOption(OptionEnum::outputFileType(), [FileTypeEnum::remote(), FileTypeEnum::inline()]),
                 new SupportedOption(OptionEnum::outputMediaOrientation(), [
                     MediaOrientationEnum::square(),
                     MediaOrientationEnum::landscape(),
                     MediaOrientationEnum::portrait(),
                 ]),
-                new SupportedOption(OptionEnum::outputMediaAspectRatio(), ['1:1', '3:2', '2:3']),
+                new SupportedOption(OptionEnum::outputMediaAspectRatio(), $imageContract['aspectRatios']),
                 new SupportedOption(OptionEnum::customOptions()),
             ]);
         }

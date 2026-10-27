@@ -6,7 +6,7 @@
  * Description:       APIMart text, image and speech integration for the WordPress AI Client.
  * Requires at least: 6.9
  * Requires PHP:      7.4
- * Version:           0.1.1
+ * Version:           0.1.2
  * Author:            ROYIANS
  * Author URI:        https://github.com/ROYIANS
  * License:           GPL-2.0-or-later

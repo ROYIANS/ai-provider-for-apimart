@@ -20,13 +20,19 @@ Composer 包名为 `royians/ai-provider-for-apimart`，命名空间为 `WordPres
 
 [模型列表文档](https://docs.apimart.ai/en/api-reference/texts/models/list.md) 提供 `category` 和 `capability_tags`；实现请求 `expand=category`，不再按 OpenAI ID 前缀推断多厂商模型。
 
-- `chat` 映射文本和对话历史；仅 Embedding 的条目排除。
+- `chat` 映射文本和对话历史；仅 Embedding 的条目排除。0.1.2 也接受 `unknown` 分类但明确带有 `Text` / `Vision` 标签的文本条目。
 - `Vision` 标签允许文本加图片输入；其他 Audio/Omni 标签不会自动声明音频输入。
-- `image` 仅接受已核实接口的 `gpt-image-1-official` 与 `gpt-image-1.5-official`。图片编辑输入还需要 `Image to Image` 标签。
+- 图片仅接受下文列出的已核实 GPT Image ID，分类可为 `image` 或 `unknown`。图片编辑输入还需要 `Image to Image` 标签。
 - `audio` 仅接受 `gpt-4o-mini-tts`。
-- `unknown`、视频、其他图像/音频、Embedding 不进入本版本目录。
+- 未能识别的 `unknown`、视频、其他图像/音频、Embedding 不进入本版本目录。
+
+官方文档说明 `unknown` 表示平台尚未补齐目录分类，模型仍可调用。`gpt-6-luna` 已由官方 [GPT 页面](https://apimart.ai/zh/model/llm/gpt)及[公开定价接口](https://apib.ai/api/pricing/model?model=gpt-6-luna)核实为文本模型；0.1.2 对这个准确 ID 提供文本兜底。兜底仍要求它出现在当前 Key 的认证目录中，不会向目录追加 ID，也不会凭名称补造 Vision 能力。公开目录不能证明用户 Key 的实际权限或返回的分类。
 
 严格的 `$registry->getProviderModel()` 查询要求 ID 存在于当前 Key 返回的可支持目录；SDK 的 `usingModelPreference()` 只是偏好，可能自动回退到其他模型。SDK 1.5 的“跳过列表查询”快捷路径未启用。目录缓存键包含认证信息的 SHA-256 哈希，避免权限不同的 Key 共享目录；缓存键不写入原始密钥。
+
+SDK 将解析后的模型元数据缓存 86400 秒。0.1.2 的缓存键加入元数据 schema 版本，升级后不会继续使用旧版仅保留两个图片模型的解析结果。“设置 → APIMart → Refresh model list”通过权限与 nonce 检查后清除当前接口、当前认证上下文的目录缓存；再次打开模型选择时重新读取，不发起内容生成。平台本身的目录更新仍可能有数分钟延迟。
+
+WordPress AI 1.4 的逐功能选模入口是“设置 → AI → 右上角工具图标 → Developer Tools → Model selection”。启用后，各个已开启的功能显示 Provider 与 Model，选择后需要保存。Provider 负责提供模型和能力；具体功能配置由使用 PHP AI Client 的应用负责。
 
 文本目录仅声明通用文档核实的基本参数。工具和 JSON Schema 的底层转换保留并有 mock 测试，但列表没有聊天模型逐项参数合同，所以普通 PromptBuilder 的 `usingFunctionDeclarations()` 和 `asJson()` / `asOutputSchema()` 无法通过本目录的能力匹配。已自行核实的应用可直接配置模型与自有元数据，或通过 customOptions 传递协议参数。不能因此宣称所有模型均支持这些能力。
 
@@ -40,9 +46,25 @@ Composer 包名为 `royians/ai-provider-for-apimart`，命名空间为 `WordPres
 
 ## 图像
 
-依据 [GPT Image 文档](https://docs.apimart.ai/en/api-reference/images/gpt-image-1/generation.md) 与[任务状态文档](https://docs.apimart.ai/en/api-reference/tasks/status.md)。生成与编辑均以 JSON 提交 `/v1/images/generations`，解析 `data[].task_id`，再查询 `/v1/tasks/{id}`。编辑传 `image_urls` / `mask_url`，不使用 OpenAI multipart `/images/edits`。
+依据 [GPT Image 1](https://docs.apimart.ai/en/api-reference/images/gpt-image-1/generation.md)、[GPT Image 2 / 2 Ext](https://docs.apimart.ai/en/api-reference/images/gpt-image-2/generation.md)、[GPT Image 2 Official](https://docs.apimart.ai/en/api-reference/images/gpt-image-2/official.md)、[GPT Image 2.5](https://docs.apimart.ai/en/api-reference/images/gpt-image-2.5/generation.md)、[GPT Image 2.5 Ext](https://docs.apimart.ai/en/api-reference/images/gpt-image-2.5-ext/generation.md)及[任务状态文档](https://docs.apimart.ai/en/api-reference/tasks/status.md)。生成与编辑均以 JSON 提交 `/v1/images/generations`，解析 `data[].task_id` 或 2.5 Ext 的 HTTP 202 单任务对象，再查询 `/v1/tasks/{id}`。编辑传 `image_urls` / `mask_url`，不使用 OpenAI multipart `/images/edits`。
 
-支持 PNG/JPEG、1–4 张、`1:1` / `2:3` / `3:2`，最多 15 张公开 URL 参考图。掩码要求同时提供参考图；透明背景与 JPEG 冲突会在发送前拒绝。输出仅为 SDK remote 文件；不下载图片，也不假设固定 URL 有效期。每个任务完整数据放在 `additionalData.tasks`，其中保留 `result.images[*].expires_at`，任务 ID 放在 `additionalData.task_ids`。
+| 目录中的准确 ID | 数量 | 输出格式 | 参考图上限 | mask_url |
+| --- | --- | --- | --- | --- |
+| `gpt-image-1-official`、`gpt-image-1.5-official` | 1–4 | PNG、JPEG | 15 | 支持 |
+| `gpt-image-2`、`gpt-image-2-ext` | 1 | PNG | 15 | 不支持 |
+| `gpt-image-2-official` | 1–4 | PNG、JPEG、WebP | 16 | 支持 |
+| `gpt-image-2.5-flare`、`gpt-image-2.5-sunburst` | 1–4 | PNG、JPEG、WebP | 16 | 支持 |
+| `gpt-image-2.5-ext` | 1–4 | PNG | 16 | 不支持 |
+
+2.5 系列在官方目录中使用 Flare / Sunburst / Ext ID，不额外创建未经核实的 `gpt-image-2.5` 别名。2 / 2 Ext 参数文档的 `n` 上限为 1，而示例中出现 2；实现按参数说明限制为 1。
+
+1 / 1.5 支持 `1:1`、`2:3`、`3:2`。2 / 2 Ext / 2 Official / 2.5 Flare 与 Sunburst 支持 15 种文档比例；2.5 Ext 支持 10 种。新系列还支持 `size=auto` 与 1K / 2K / 4K 分辨率；配置会按各接口要求规范化分辨率大小写。2.5 Ext 的 `version` 可为 `flare` / `sunburst`。目录展示与请求校验共用逐模型配置，避免列表宣称可选但请求无法实现。
+
+参考图与掩码均要求公开 HTTP(S) URL，不支持本地或 inline 上传。掩码要求同时提供参考图；透明背景与 JPEG 冲突会在发送前拒绝。
+
+默认输出为 SDK remote 文件；显式请求 `FileTypeEnum::inline()` 时，0.1.2 会下载已完成任务的图片 URL 并构造含 base64 数据的 SDK File，下载请求不携带 APIMart 认证头。下载共用生成的截止时间，不跟随重定向；要求 Content-Type 与请求的 PNG / JPEG / WebP 格式一致，内容非空且不超过 32 MiB。SDK transporter 先缓冲响应体再检查大小，该限制不是流式内存上限。普通 remote 输出不会触发下载。两种输出均保留完整 `additionalData.tasks` 与 `additionalData.task_ids`；remote 文件应在任务返回的 `result.images[*].expires_at` 前保存，不假设固定 URL 有效期。
+
+WordPress AI 1.4 的 `Generate_Image` 固定请求 inline 输出并读取 base64，而 SDK 不会自动把 APIMart 任务的远程 URL 转为 inline File。上述转换补齐了内置图片生成的输出合同。内置图片编辑则会发送 base64 参考图，仍不满足本适配器的公开 URL 输入要求；因此不能把目录中的 `Image to Image` 能力解读为 WordPress AI 1.4 内置编辑已经兼容。通过应用传入公开参考图 URL 的通用编辑路径继续支持。
 
 同步 SDK 调用会阻塞轮询。customOptions 的 `apimart_poll_timeout` 默认为 120 秒（范围 0.1–600），`apimart_poll_interval` 默认为 2 秒（范围 0.1–60）；这两个参数不会发送给 APIMart。提交和所有任务共享一个截止时间，单次 HTTP timeout 取剩余时间与调用方配置的较小值。有限请求预算避免异常时钟下无限轮询。SDK 1.3.1 仅在 Guzzle 或实现 ClientWithOptionsInterface 的客户端上应用 RequestOptions；普通 PSR-18 客户端会忽略这些选项，单次请求可能超出轮询期限。使用 README 中的 Guzzle 配置，或由集成环境提供能执行请求超时的 transporter。
 

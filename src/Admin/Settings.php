@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace WordPress\ApimartAiProvider\Admin;
 
+use RuntimeException;
+use WordPress\AiClient\Common\Contracts\CachesDataInterface;
 use WordPress\ApimartAiProvider\Provider\ApimartProvider;
 
 /**
@@ -32,6 +34,7 @@ final class Settings
         self::$hooksRegistered = true;
         add_action('admin_menu', [self::class, 'addPage']);
         add_action('admin_init', [self::class, 'registerSettings']);
+        add_action('admin_post_apimart_refresh_models', [self::class, 'refreshModels']);
     }
 
     /**
@@ -116,6 +119,17 @@ final class Settings
         )) . '</a></p>';
 
         settings_errors(ApimartProvider::BASE_URL_OPTION);
+        if (isset($_GET['catalog-refreshed']) && $_GET['catalog-refreshed'] === '1') {
+            echo '<div class="notice notice-success inline"><p>' . esc_html(__(
+                'The cached APIMart model list was cleared. Reopen model selection to load the current list.',
+                'ai-provider-for-apimart'
+            )) . '</p></div>';
+        } elseif (isset($_GET['catalog-refresh-error']) && $_GET['catalog-refresh-error'] === '1') {
+            echo '<div class="notice notice-error inline"><p>' . esc_html(__(
+                'The APIMart model cache could not be cleared. Check the connector configuration and try again.',
+                'ai-provider-for-apimart'
+            )) . '</p></div>';
+        }
         if (ApimartProvider::hasBaseUrlOverride()) {
             echo '<div class="notice notice-info inline"><p>' . esc_html(__(
                 'APIMART_BASE_URL is configured in the environment or wp-config.php and overrides this saved setting.',
@@ -129,7 +143,48 @@ final class Settings
         if (!ApimartProvider::hasBaseUrlOverride()) {
             submit_button();
         }
+        echo '</form>';
+        echo '<h2>' . esc_html(__('Model list', 'ai-provider-for-apimart')) . '</h2>';
+        echo '<p>' . esc_html(__(
+            'Refresh the cached model list after your available models change. '
+            . 'The next model selection reloads the list; this does not generate content.',
+            'ai-provider-for-apimart'
+        )) . '</p>';
+        echo '<form action="' . esc_url(admin_url('admin-post.php')) . '" method="post">';
+        echo '<input type="hidden" name="action" value="apimart_refresh_models">';
+        wp_nonce_field('apimart_refresh_models');
+        submit_button(__('Refresh model list', 'ai-provider-for-apimart'), 'secondary');
         echo '</form></div>';
+    }
+
+    /**
+     * Clears only this connector's current catalog cache without requesting generation.
+     *
+     * @since 0.1.2
+     *
+     * @return void
+     */
+    public static function refreshModels(): void
+    {
+        if (!current_user_can('manage_options')) {
+            wp_die(__('You are not allowed to refresh the APIMart model list.', 'ai-provider-for-apimart'));
+            return;
+        }
+
+        check_admin_referer('apimart_refresh_models');
+        try {
+            $directory = ApimartProvider::modelMetadataDirectory();
+            if (!$directory instanceof CachesDataInterface) {
+                throw new RuntimeException('The APIMart model directory does not support cache invalidation.');
+            }
+            $directory->invalidateCaches();
+            $result = 'catalog-refreshed';
+        } catch (\Throwable $exception) {
+            $result = 'catalog-refresh-error';
+        }
+
+        wp_safe_redirect(admin_url('options-general.php?page=' . self::PAGE_SLUG . '&' . $result . '=1'));
+        exit;
     }
 
     /**

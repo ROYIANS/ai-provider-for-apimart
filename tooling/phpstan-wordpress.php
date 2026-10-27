@@ -42,4 +42,9 @@ function admin_url(string $path = ''): string {}
 function settings_errors(string $setting = '', bool $sanitize = false, bool $hide_on_update = false): void {}
 function settings_fields(string $option_group): void {}
 function do_settings_sections(string $page): void {}
-function submit_button(): void {}
+function submit_button(string $text = '', string $type = 'primary'): void {}
+function wp_nonce_field(string $action = '-1'): void {}
+/** @return int|false */
+function check_admin_referer(string $action = '-1') {}
+function wp_die(string $message = ''): void {}
+function wp_safe_redirect(string $location): bool {}

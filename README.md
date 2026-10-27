@@ -6,13 +6,15 @@ The implementation follows APIMart's documented contracts and has automated test
 
 | Capability | Available through this adapter |
 | --- | --- |
-| Text and chat history | Models categorized as `chat`; embedding-only entries are excluded |
+| Text and chat history | Models categorized as `chat`, plus uncategorized entries with explicit text/vision metadata and the verified `gpt-6-luna` fallback; embedding-only entries are excluded |
 | Image input for chat | Only when the catalog includes the `Vision` tag |
-| Image generation and editing | `gpt-image-1-official`, `gpt-image-1.5-official`, when categorized as `image` |
+| Image generation and public-URL editing | Verified GPT Image 1, 1.5, 2 and 2.5 IDs listed below, when categorized as `image` or `unknown`; remote or inline output |
 | Text to speech | `gpt-4o-mini-tts`, when categorized as `audio` |
 | Embeddings, video, other image/audio models | Not exposed by this version |
 
-The model list comes from `GET /v1/models?expand=category` and depends on your API key's permissions. Unknown categories and unsupported models are omitted. Explicit model IDs still resolve through that catalog, including on SDK versions with an explicit-ID shortcut; arbitrary IDs do not acquire guessed capabilities. Catalog caches are separated by API endpoint and authentication credentials.
+The model list comes from `GET /v1/models?expand=category` and depends on your API key's permissions and group. APIMart documents that an `unknown` category can still be callable. This adapter recognizes explicit `Text` or `Vision` tags on uncategorized entries, and provides a text-only fallback for `gpt-6-luna` based on APIMart's verified public model metadata. Supported image IDs also have verified contracts when their category is `unknown`. These fallbacks apply only to IDs returned by your authenticated catalog; they never add models that your key cannot see. Other uncategorized or unsupported entries are omitted. Explicit model IDs still resolve through that catalog, including on SDK versions with an explicit-ID shortcut; arbitrary IDs do not acquire guessed capabilities.
+
+Catalog caches are separated by API endpoint, authentication credentials and the adapter's metadata schema. The SDK caches parsed models for up to 24 hours. After changing model permissions, use **Settings → APIMart → Refresh model list**, then reopen the application's model selector. Upgrading to 0.1.2 uses a new cache namespace so the older two-image-model list is not reused.
 
 ## Requirements and installation
 
@@ -52,6 +54,8 @@ define('APIMART_API_KEY', 'your-api-key');
 ```
 
 The SDK reads the environment variable first, then the constant. Requests use `Authorization: Bearer ...`. Existing OpenAI credentials are independent of this provider.
+
+With the WordPress **AI 1.4** plugin, enable **Settings → AI → top-right tools icon → Developer Tools → Model selection** to show the provider and model controls for each enabled feature. Select APIMart and a model for the feature, then save. The model selector belongs to the consuming application; this connector supplies its available models and capabilities.
 
 ## API domain and network access
 
@@ -106,9 +110,25 @@ $tasks = $result->getAdditionalData()['tasks'];
 
 Image generation submits JSON to `/v1/images/generations`, then polls `/v1/tasks/{id}`. The SDK call blocks until completion or its bounded polling deadline. Defaults: 120 seconds total and a 2-second polling interval. Configure `apimart_poll_timeout` (0.1–600 seconds) and `apimart_poll_interval` (0.1–60 seconds) through custom options; these local settings are removed before the API request. Each HTTP request receives a timeout bounded by the remaining deadline and the caller's request timeout. This requires a transporter/client that honors SDK request options: SDK 1.3.1 supports Guzzle and clients implementing `ClientWithOptionsInterface`. A plain PSR-18 client can ignore these options and block beyond the polling deadline; configure its own timeout or use the Guzzle setup above. WordPress integrations must likewise provide an option-aware transporter.
 
-Both image models support 1–4 images, PNG/JPEG, and `1:1`, `2:3`, `3:2`. Image editing uses the same endpoint and passes remote input files as `image_urls`; it requires the catalog's `Image to Image` tag. Reference images (maximum 15) and optional `mask_url` must be publicly reachable HTTP(S) URLs. Local/inline file uploads are not implemented. Other documented image parameters, such as `quality`, `background`, and `mask_url`, can be supplied through custom options.
+Image capabilities follow each model's documented contract:
 
-Images are returned as remote SDK files. Save them before the provider-supplied `expires_at` value in `additionalData.tasks[*].result.images[*]`; no universal expiration period is assumed. Full task metadata and `task_ids` are retained. Failed and cancelled tasks raise errors. A client timeout does not cancel the remote task; the error includes its ID so the application can query its status before deciding whether to resubmit.
+| Exact catalog IDs | Images per request | Output | Reference limit | Mask |
+| --- | --- | --- | --- | --- |
+| `gpt-image-1-official`, `gpt-image-1.5-official` | 1–4 | PNG, JPEG | 15 | Yes |
+| `gpt-image-2`, `gpt-image-2-ext` | 1 | PNG | 15 | No |
+| `gpt-image-2-official` | 1–4 | PNG, JPEG, WebP | 16 | Yes |
+| `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst` | 1–4 | PNG, JPEG, WebP | 16 | Yes |
+| `gpt-image-2.5-ext` | 1–4 | PNG | 16 | No |
+
+APIMart exposes the 2.5 family as Flare, Sunburst and Ext IDs; this adapter does not invent a separate `gpt-image-2.5` alias. The original 1/1.5 models support `1:1`, `2:3`, `3:2`. The 2/2-official/2.5 Flare and Sunburst models support 15 documented ratios; 2.5 Ext supports 10. Newer families also accept `size=auto` and 1K/2K/4K resolution through custom options, with the casing required by their API. The model picker and request validation share the same per-model configuration.
+
+Image editing uses the same endpoint and passes remote input files as `image_urls`; it requires the catalog's `Image to Image` tag. Reference images and optional `mask_url` must be publicly reachable HTTP(S) URLs. Local/inline file uploads are not implemented. Supply documented model-specific parameters such as `resolution`, `quality`, `background`, `mask_url` or the 2.5 Ext `version` through custom options; unsupported settings are rejected before submission.
+
+The default output is a remote SDK file, as in the example above. For `FileTypeEnum::inline()`, the adapter downloads each completed result URL without APIMart authentication headers and returns a base64-backed SDK file. Downloads share the generation deadline, do not follow redirects, and require a nonempty image of at most 32 MiB with a matching PNG/JPEG/WebP Content-Type. The SDK transporter buffers the body before the size check.
+
+Inline output supports WordPress AI 1.4 image generation, which requests inline files and reads base64 data. Its built-in image editing sends inline reference images and remains incompatible with this adapter's public-URL input requirement. Applications that supply public reference URLs can use the adapter's image editing support.
+
+Save remote outputs before the provider-supplied `expires_at` value in `additionalData.tasks[*].result.images[*]`; no universal expiration period is assumed. Full task metadata and `task_ids` are retained for both output types. Failed and cancelled tasks raise errors. A client timeout does not cancel the remote task; the error includes its ID so the application can query its status before deciding whether to resubmit.
 
 ## Speech
 
@@ -129,7 +149,7 @@ Runnable standalone examples are in [examples/](examples/). They perform real, p
 
 ## Development
 
-Build an installable WordPress ZIP with `bash scripts/build-plugin.sh` (requires `rsync`, `zip`, `unzip` and `shasum`). The output is `dist/ai-provider-for-apimart-0.1.1.zip`, with one `ai-provider-for-apimart/` top-level directory. Upload that ZIP via **Plugins → Add New → Upload Plugin**. It contains the provider and manual autoloader; the compatible PHP AI Client must already be loaded by your WordPress environment. Generated ZIPs are ignored by Git and excluded from subsequent builds.
+Build an installable WordPress ZIP with `bash scripts/build-plugin.sh` (requires `rsync`, `zip`, `unzip` and `shasum`). The output is `dist/ai-provider-for-apimart-0.1.2.zip`, with one `ai-provider-for-apimart/` top-level directory. Upload that ZIP via **Plugins → Add New → Upload Plugin**. It contains the provider and manual autoloader; the compatible PHP AI Client must already be loaded by your WordPress environment. Generated ZIPs are ignored by Git and excluded from subsequent builds.
 
 ```sh
 composer install

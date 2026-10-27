@@ -41,6 +41,11 @@ class PluginBootstrapTest extends TestCase
                 'callback' => ['WordPress\\ApimartAiProvider\\Admin\\Settings', 'registerSettings'],
                 'priority' => 10,
             ],
+            [
+                'hook' => 'admin_post_apimart_refresh_models',
+                'callback' => ['WordPress\\ApimartAiProvider\\Admin\\Settings', 'refreshModels'],
+                'priority' => 10,
+            ],
         ], $result['hooks']);
         $this->assertSame(
             '/wordpress/wp-content/plugins/custom-folder/ai-provider-for-apimart',
@@ -96,7 +101,7 @@ class PluginBootstrapTest extends TestCase
         $this->assertSame([$providerClass, $providerClass], $result['checkedProviders']);
         $this->assertSame([$providerClass], $result['registeredProviders']);
         $this->assertSame('', $result['notice']);
-        $this->assertCount(3, $result['hooks']);
+        $this->assertCount(4, $result['hooks']);
     }
 
     /**
@@ -130,7 +135,7 @@ class PluginBootstrapTest extends TestCase
 
         $this->assertSame('/custom/plugin/path', $result['pluginDir']);
         $this->assertNull($result['pluginBasenameArgument']);
-        $this->assertCount(3, $result['hooks']);
+        $this->assertCount(4, $result['hooks']);
     }
 
     public function testMissingSdkSchedulesAnActionableAdministratorNotice(): void
