@@ -92,6 +92,8 @@ class ApimartModelMetadataDirectory extends AbstractOpenAiCompatibleModelMetadat
             $category = $model['category'] ?? 'unknown';
             $tags = $model['capability_tags'] ?? [];
             if (!is_string($category) || !is_array($tags) || !array_is_list($tags)) {
+                // SDK exception data is escaped by consumers at the rendering boundary.
+                // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
                 throw ResponseException::fromInvalidData('APIMart', 'data.' . $index, 'Invalid model metadata.');
             }
             $validatedTags = [];

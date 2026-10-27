@@ -118,6 +118,8 @@ class ApimartProvider extends AbstractApiProvider
     private static function validateBaseUrl(string $url): string
     {
         $url = rtrim($url, '/');
+        // Absolute URL validation also supports standalone Composer usage.
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.parse_url_parse_url
         $parts = parse_url($url);
         if (
             filter_var($url, FILTER_VALIDATE_URL) === false ||
@@ -158,6 +160,8 @@ class ApimartProvider extends AbstractApiProvider
         }
 
         throw new RuntimeException(
+            // SDK exception data is escaped by consumers at the rendering boundary.
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
             'Unsupported model capabilities: ' . implode(', ', $modelMetadata->getSupportedCapabilities())
         );
     }

@@ -272,6 +272,17 @@ class SettingsTest extends TestCase
         Settings::refreshModels();
     }
 
+    public function testRefreshPermissionErrorEscapesTranslatedText(): void
+    {
+        SettingsTest::$allowed = false;
+        $message = 'You are not allowed to refresh the APIMart model list.';
+        SettingsTest::$translations[$message] = '<script>denied</script>';
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('&lt;script&gt;denied&lt;/script&gt;');
+        Settings::refreshModels();
+    }
+
     public function testRefreshFailureRedirectsToAGenericNoticeWithoutExceptionDetails(): void
     {
         $cache = $this->createMock(CacheInterface::class);

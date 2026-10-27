@@ -119,12 +119,16 @@ final class Settings
         )) . '</a></p>';
 
         settings_errors(ApimartProvider::BASE_URL_OPTION);
-        if (isset($_GET['catalog-refreshed']) && $_GET['catalog-refreshed'] === '1') {
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only fixed notice; no state change.
+        $refreshed = isset($_GET['catalog-refreshed']) && $_GET['catalog-refreshed'] === '1';
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only fixed notice; no state change.
+        $refreshError = isset($_GET['catalog-refresh-error']) && $_GET['catalog-refresh-error'] === '1';
+        if ($refreshed) {
             echo '<div class="notice notice-success inline"><p>' . esc_html(__(
                 'The cached APIMart model list was cleared. Reopen model selection to load the current list.',
                 'ai-provider-for-apimart'
             )) . '</p></div>';
-        } elseif (isset($_GET['catalog-refresh-error']) && $_GET['catalog-refresh-error'] === '1') {
+        } elseif ($refreshError) {
             echo '<div class="notice notice-error inline"><p>' . esc_html(__(
                 'The APIMart model cache could not be cleared. Check the connector configuration and try again.',
                 'ai-provider-for-apimart'
@@ -146,8 +150,8 @@ final class Settings
         echo '</form>';
         echo '<h2>' . esc_html(__('Model list', 'ai-provider-for-apimart')) . '</h2>';
         echo '<p>' . esc_html(__(
-            'Refresh the cached model list after your available models change. '
-            . 'The next model selection reloads the list; this does not generate content.',
+            // phpcs:ignore Generic.Files.LineLength.TooLong -- Keep the translatable message as one literal.
+            'Refresh the cached model list after your available models change. The next model selection reloads the list; this does not generate content.',
             'ai-provider-for-apimart'
         )) . '</p>';
         echo '<form action="' . esc_url(admin_url('admin-post.php')) . '" method="post">';
@@ -167,7 +171,10 @@ final class Settings
     public static function refreshModels(): void
     {
         if (!current_user_can('manage_options')) {
-            wp_die(__('You are not allowed to refresh the APIMart model list.', 'ai-provider-for-apimart'));
+            wp_die(esc_html(__(
+                'You are not allowed to refresh the APIMart model list.',
+                'ai-provider-for-apimart'
+            )));
             return;
         }
 

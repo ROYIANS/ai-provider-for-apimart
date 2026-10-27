@@ -149,7 +149,7 @@ Runnable standalone examples are in [examples/](examples/). They perform real, p
 
 ## Development
 
-Build an installable WordPress ZIP with `bash scripts/build-plugin.sh` (requires `rsync`, `zip`, `unzip` and `shasum`). The output is `dist/ai-provider-for-apimart-0.1.2.zip`, with one `ai-provider-for-apimart/` top-level directory. Upload that ZIP via **Plugins → Add New → Upload Plugin**. It contains the provider and manual autoloader; the compatible PHP AI Client must already be loaded by your WordPress environment. Generated ZIPs are ignored by Git and excluded from subsequent builds.
+Build an installable WordPress ZIP with `bash scripts/build-plugin.sh` (requires `rsync`, `zip`, `unzip` and `shasum`). The output is `dist/ai-provider-for-apimart-0.1.3.zip`, with one `ai-provider-for-apimart/` top-level directory. Upload that ZIP via **Plugins → Add New → Upload Plugin**. It contains the provider and manual autoloader; the compatible PHP AI Client must already be loaded by your WordPress environment. Generated ZIPs are ignored by Git and excluded from subsequent builds.
 
 ```sh
 composer install
@@ -160,6 +160,6 @@ composer validate --strict
 
 The default branch, `main`, contains the maintained APIMart implementation. Develop changes on `codex/**` branches and submit pull requests to `main`; release tags identify published versions. The inherited `trunk` branch is retained as an upstream reference.
 
-PHPUnit uses fake transporters and does not require WordPress, a database or an API key. CI runs on this fork for `main`, `codex/**`, pull requests and manual dispatch, with lowest/latest dependency matrices on PHP 7.4–8.5. WordPress.org deployment uses the APIMart slug and stays disabled unless `WPORG_DEPLOY_ENABLED=true` is configured for this repository after its own listing and secrets are ready.
+PHPUnit uses fake transporters and does not require WordPress, a database or an API key. CI runs on this fork for `main`, `codex/**`, pull requests and manual dispatch, with lowest/latest dependency matrices on PHP 7.4–8.5. A separate official Plugin Check job checks the staged WordPress distribution with all default static and runtime checks and treats warnings as failures. Its reproducible environment uses WordPress 7.1.3, PHP 8.4 and Plugin Check 2.1.0. See [Plugin Check findings and verification](docs/plugin-check.md) for the 0.1.3 fixes and the reasons for individual SDK-specific static-analysis annotations. WordPress.org deployment uses the APIMart slug and stays disabled unless `WPORG_DEPLOY_ENABLED=true` is configured for this repository after its own listing and secrets are ready.
 
 See [local verification results](docs/validation.md) and [CONTRIBUTING.md](CONTRIBUTING.md) for distribution checks. Upstream code remains attributed to the WordPress AI Team; this fork and the user-supplied APIMart icon do not imply endorsement by WordPress, OpenAI or APIMart. Licensed under [GPL-2.0-or-later](LICENSE).

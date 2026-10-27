@@ -137,11 +137,15 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
         $config = $this->getConfig();
         $capabilities = ApimartImageModelCapabilities::forModel($this->metadata()->getId());
         if ($capabilities === null) {
+            // SDK exception data is escaped by consumers at the rendering boundary.
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
             throw new InvalidArgumentException('Unsupported APIMart image model: ' . $this->metadata()->getId());
         }
         $mimeType = $config->getOutputMimeType() ?? 'image/png';
         if (!in_array($mimeType, $capabilities['mimeTypes'], true)) {
             throw new InvalidArgumentException(
+                // SDK exception data is escaped by consumers at the rendering boundary.
+                // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
                 'This APIMart image model does not support output MIME type ' . $mimeType
             );
         }
@@ -188,6 +192,8 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
             }
             if (array_key_exists($key, $params) || $key === 'response_format' || $key === 'output_format') {
                 throw new InvalidArgumentException(
+                    // SDK exception data is escaped by consumers at the rendering boundary.
+                    // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
                     'The custom option "' . $key . '" conflicts with an image parameter.'
                 );
             }
@@ -214,6 +220,8 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
         if (!$capabilities['outputFormat']) {
             foreach (['background', 'output_compression', 'moderation'] as $key) {
                 if (array_key_exists($key, $params)) {
+                    // SDK exception data is escaped by consumers at the rendering boundary.
+                    // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
                     throw new InvalidArgumentException('This APIMart image model does not support ' . $key . '.');
                 }
             }
@@ -223,6 +231,8 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
             $maximum = $capabilities['maxReferenceImages'];
             if (!is_array($urls) || !array_is_list($urls) || count($urls) < 1 || count($urls) > $maximum) {
                 throw new InvalidArgumentException(
+                    // SDK exception data is escaped by consumers at the rendering boundary.
+                    // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
                     'APIMart image_urls must contain between 1 and ' . $maximum . ' public image URLs.'
                 );
             }
@@ -340,6 +350,8 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
                 $error = $task['error'] ?? null;
                 $message = is_array($error) && isset($error['message']) && is_string($error['message'])
                     ? ': ' . $error['message'] : '';
+                // SDK exception data is escaped by consumers at the rendering boundary.
+                // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
                 throw new RuntimeException('APIMart image task "' . $taskId . '" ' . $task['status'] . $message);
             }
             if (!in_array($task['status'], ['submitted', 'pending', 'processing', 'in_progress'], true)) {
@@ -351,6 +363,8 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
             }
         }
         throw new RuntimeException(
+            // SDK exception data is escaped by consumers at the rendering boundary.
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
             'Timed out waiting for APIMart image task "' . $taskId . '"; the task may still run.'
         );
     }
@@ -399,6 +413,8 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
             $error = $data['error'] ?? null;
             $message = is_array($error) && isset($error['message']) && is_string($error['message'])
                 ? $error['message'] : 'Unsuccessful API response.';
+            // SDK exception data is escaped by consumers at the rendering boundary.
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
             throw new ResponseException('APIMart image API error: ' . $message);
         }
         return $data;
@@ -512,6 +528,8 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
         if (filter_var($url, FILTER_VALIDATE_URL) === false) {
             return false;
         }
+        // Absolute URL validation also supports standalone Composer usage.
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.parse_url_parse_url
         $parts = parse_url($url);
         if (
             !is_array($parts) || !isset($parts['scheme'], $parts['host']) ||
@@ -544,6 +562,8 @@ class ApimartImageGenerationModel extends AbstractOpenAiCompatibleImageGeneratio
     {
         $value = $options[$name] ?? $default;
         if ((!is_int($value) && !is_float($value)) || !is_finite((float) $value) || $value < 0.1 || $value > $maximum) {
+            // SDK exception data is escaped by consumers at the rendering boundary.
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
             throw new InvalidArgumentException($name . ' must be a number between 0.1 and ' . $maximum . ' seconds.');
         }
         return (float) $value;

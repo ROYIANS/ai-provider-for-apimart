@@ -2,7 +2,8 @@
 Contributors:      royians
 Tags:              ai, apimart, artificial-intelligence, connector
 Requires at least: 6.9
-Stable tag:        0.1.2
+Tested up to:      7.1
+Stable tag:        0.1.3
 Requires PHP:      7.4
 License:           GPL-2.0-or-later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
@@ -69,6 +70,12 @@ No. This plugin provides an adapter for PHP AI Client and does not install or lo
 
 == Changelog ==
 
+= 0.1.3 =
+
+* Fix translation extraction by using complete string literals and escape the administrator permission error at its HTML output boundary.
+* Add the WordPress-only autoloader access guard and the Tested up to header after compatibility validation.
+* Document precise static-analysis exceptions for plain-text SDK errors, standalone URL parsing and read-only notice flags; keep the refresh action's permission and nonce checks.
+
 = 0.1.2 =
 
 * Support GPT Image 2, 2 Ext, 2 Official, 2.5 Flare, 2.5 Sunburst and 2.5 Ext with their individual parameter contracts and asynchronous task responses.
@@ -93,6 +100,10 @@ No. This plugin provides an adapter for PHP AI Client and does not install or lo
 * Mock protocol tests and fork CI. WordPress.org deployment requires explicit repository configuration.
 
 == Upgrade Notice ==
+
+= 0.1.3 =
+
+Addresses the Plugin Check report for WordPress packaging, translations and administrator output. Existing provider settings and model behavior are retained.
 
 = 0.1.2 =
 
