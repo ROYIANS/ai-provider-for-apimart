@@ -1,6 +1,6 @@
 # AI Provider for APIMart
 
-APIMart integration for the [WordPress PHP AI Client](https://github.com/WordPress/php-ai-client), usable as a Composer package or WordPress plugin. This independent fork is based on [WordPress/ai-provider-for-openai](https://github.com/WordPress/ai-provider-for-openai). It registers a separate `apimart` provider and uses `https://api.apimart.ai/v1`.
+APIMart integration for the [WordPress PHP AI Client](https://github.com/WordPress/php-ai-client), usable as a Composer package or WordPress plugin. This independent fork is based on [WordPress/ai-provider-for-openai](https://github.com/WordPress/ai-provider-for-openai). It registers a separate `apimart` provider and defaults to `https://api.apimart.ai/v1`.
 
 The implementation follows APIMart's documented contracts and has automated tests with fake HTTP responses. Live requests with an APIMart API key have not been verified. See [兼容性与实现说明](docs/compatibility.md) for the exact scope and protocol decisions.
 
@@ -12,12 +12,12 @@ The implementation follows APIMart's documented contracts and has automated test
 | Text to speech | `gpt-4o-mini-tts`, when categorized as `audio` |
 | Embeddings, video, other image/audio models | Not exposed by this version |
 
-The model list comes from `GET /v1/models?expand=category` and depends on your API key's permissions. Unknown categories and unsupported models are omitted. Explicit model IDs still resolve through that catalog, including on SDK versions with an explicit-ID shortcut; arbitrary IDs do not acquire guessed capabilities. Catalog caches are separated by authentication credentials.
+The model list comes from `GET /v1/models?expand=category` and depends on your API key's permissions. Unknown categories and unsupported models are omitted. Explicit model IDs still resolve through that catalog, including on SDK versions with an explicit-ID shortcut; arbitrary IDs do not acquire guessed capabilities. Catalog caches are separated by API endpoint and authentication credentials.
 
 ## Requirements and installation
 
 - PHP **7.4+**.
-- `wordpress/php-ai-client` **1.4.0+ within major version 1**.
+- `wordpress/php-ai-client` **1.3.1+ within major version 1**.
 - An [APIMart API key](https://apimart.ai/keys) with access to the selected models.
 - For standalone Composer usage, a working PSR-18 HTTP client, for example `guzzlehttp/guzzle`.
 
@@ -43,15 +43,36 @@ $registry->setHttpTransporter(new HttpTransporter(new Client(['timeout' => 30.0]
 $registry->registerProvider(ApimartProvider::class);
 ```
 
-For WordPress, copy the checkout into `wp-content/plugins/ai-provider-for-apimart/`, ensure a compatible PHP AI Client is loaded by your WordPress environment, then activate the plugin. It registers at `init` priority 5 and safely returns when the SDK is missing or older than 1.4.0. WordPress 6.9+ is the plugin's declared minimum; the WordPress version alone does not establish the SDK version. The plugin's manual autoloader loads this provider only; it does not load a second SDK into WordPress.
+For WordPress, copy the checkout into `wp-content/plugins/ai-provider-for-apimart/`, ensure a compatible PHP AI Client is loaded by your WordPress environment, then activate the plugin. It registers at `init` priority 5 and safely returns when the SDK is missing or older than 1.3.1. WordPress 6.9+ is the plugin's declared minimum. WordPress 7.0–7.1 bundle SDK 1.3.1, which is supported. The WordPress AI plugin version is separate from the PHP AI Client SDK version. If the SDK is missing or incompatible, the plugin displays an administrator notice explaining the problem. The plugin's manual autoloader loads this provider only; it does not load a second SDK into WordPress.
 
-Set `APIMART_API_KEY` as an environment variable, or define the constant in WordPress before the provider is registered:
+On WordPress 7.0+, enter the API key under **Settings → Connectors → APIMart → Set up**. Alternatively, set `APIMART_API_KEY` as an environment variable, or define the constant in WordPress before the provider is registered:
 
 ```php
 define('APIMART_API_KEY', 'your-api-key');
 ```
 
 The SDK reads the environment variable first, then the constant. Requests use `Authorization: Bearer ...`. Existing OpenAI credentials are independent of this provider.
+
+## API domain and network access
+
+Use **Settings → APIMart** to choose the API domain your WordPress server can reach. The selector includes the default address and the alternate domains supplied by the site owner:
+
+| Domain | API base URL |
+| --- | --- |
+| `apimart.ai` (default) | `https://api.apimart.ai/v1` |
+| `apib.ai` | `https://api.apib.ai/v1` |
+| `aiuxu.com` | `https://api.aiuxu.com/v1` |
+| `aishuch.com` | `https://api.aishuch.com/v1` |
+
+Model discovery, chat, image submission and task polling, and speech all use the chosen endpoint. Switching the endpoint also separates its model catalog cache. Endpoint selection is manual; the adapter does not automatically replay generation requests against another domain after a timeout.
+
+For server configuration or standalone Composer usage, set the `APIMART_BASE_URL` environment variable, or add this constant in `wp-config.php` before WordPress loads plugins:
+
+```php
+define('APIMART_BASE_URL', 'https://api.apib.ai/v1');
+```
+
+Precedence: nonempty environment variable → nonempty constant → WordPress setting → default. Configuration overrides are shown on the settings page. Environment/constant configuration also accepts a trusted HTTPS proxy base URL; credentials, query strings, and fragments inside the URL are rejected. An invalid explicit override raises an error for direct Composer usage; the WordPress bootstrap skips APIMart and displays an administrator notice while keeping WordPress available. Trailing slashes are normalized. The preset addresses returned APIMart authentication errors in checks without a key; successful authenticated generation has not been verified on these domains.
 
 ## Text
 
@@ -83,7 +104,7 @@ $imageUrl = $result->toImageFile()->getUrl();
 $tasks = $result->getAdditionalData()['tasks'];
 ```
 
-Image generation submits JSON to `/v1/images/generations`, then polls `/v1/tasks/{id}`. The SDK call blocks until completion or its bounded polling deadline. Defaults: 120 seconds total and a 2-second polling interval. Configure `apimart_poll_timeout` (0.1–600 seconds) and `apimart_poll_interval` (0.1–60 seconds) through custom options; these local settings are removed before the API request. Each HTTP request receives a timeout bounded by the remaining deadline and the caller's request timeout. This requires a transporter/client that honors SDK request options: SDK 1.4 supports Guzzle and clients implementing `ClientWithOptionsInterface`. A plain PSR-18 client can ignore these options and block beyond the polling deadline; configure its own timeout or use the Guzzle setup above. WordPress integrations must likewise provide an option-aware transporter.
+Image generation submits JSON to `/v1/images/generations`, then polls `/v1/tasks/{id}`. The SDK call blocks until completion or its bounded polling deadline. Defaults: 120 seconds total and a 2-second polling interval. Configure `apimart_poll_timeout` (0.1–600 seconds) and `apimart_poll_interval` (0.1–60 seconds) through custom options; these local settings are removed before the API request. Each HTTP request receives a timeout bounded by the remaining deadline and the caller's request timeout. This requires a transporter/client that honors SDK request options: SDK 1.3.1 supports Guzzle and clients implementing `ClientWithOptionsInterface`. A plain PSR-18 client can ignore these options and block beyond the polling deadline; configure its own timeout or use the Guzzle setup above. WordPress integrations must likewise provide an option-aware transporter.
 
 Both image models support 1–4 images, PNG/JPEG, and `1:1`, `2:3`, `3:2`. Image editing uses the same endpoint and passes remote input files as `image_urls`; it requires the catalog's `Image to Image` tag. Reference images (maximum 15) and optional `mask_url` must be publicly reachable HTTP(S) URLs. Local/inline file uploads are not implemented. Other documented image parameters, such as `quality`, `background`, and `mask_url`, can be supplied through custom options.
 
@@ -108,7 +129,7 @@ Runnable standalone examples are in [examples/](examples/). They perform real, p
 
 ## Development
 
-Build an installable WordPress ZIP with `bash scripts/build-plugin.sh` (requires `rsync`, `zip`, `unzip` and `shasum`). The output is `dist/ai-provider-for-apimart-0.1.0.zip`, with one `ai-provider-for-apimart/` top-level directory. Upload that ZIP via **Plugins → Add New → Upload Plugin**. It contains the provider and manual autoloader; the compatible PHP AI Client must already be loaded by your WordPress environment. Generated ZIPs are ignored by Git and excluded from subsequent builds.
+Build an installable WordPress ZIP with `bash scripts/build-plugin.sh` (requires `rsync`, `zip`, `unzip` and `shasum`). The output is `dist/ai-provider-for-apimart-0.1.1.zip`, with one `ai-provider-for-apimart/` top-level directory. Upload that ZIP via **Plugins → Add New → Upload Plugin**. It contains the provider and manual autoloader; the compatible PHP AI Client must already be loaded by your WordPress environment. Generated ZIPs are ignored by Git and excluded from subsequent builds.
 
 ```sh
 composer install

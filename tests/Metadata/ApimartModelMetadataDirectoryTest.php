@@ -190,6 +190,47 @@ class ApimartModelMetadataDirectoryTest extends TestCase
         }
     }
 
+    public function testSwitchingApiDomainsDoesNotReuseThePreviousCatalog(): void
+    {
+        $storage = [];
+        $cache = $this->createMock(CacheInterface::class);
+        $cache->method('has')->willReturnCallback(static function (string $key) use (&$storage): bool {
+            return array_key_exists($key, $storage);
+        });
+        $cache->method('get')->willReturnCallback(static function (string $key) use (&$storage) {
+            return $storage[$key] ?? null;
+        });
+        $cache->method('set')->willReturnCallback(static function (string $key, $value) use (&$storage): bool {
+            $storage[$key] = $value;
+            return true;
+        });
+
+        $previousCache = AiClient::getCache();
+        $previousEnvironment = getenv('APIMART_BASE_URL');
+        AiClient::setCache($cache);
+        try {
+            putenv('APIMART_BASE_URL=https://api.apimart.ai/v1');
+            $first = $this->directoryForResponse(new Response(200, [], (string) json_encode([
+                'data' => [['id' => 'first-domain-model', 'category' => 'chat']],
+            ])), 'same-secret');
+            $this->assertSame('first-domain-model', $first->listModelMetadata()[0]->getId());
+
+            putenv('APIMART_BASE_URL=https://api.apib.ai/v1');
+            $second = $this->directoryForResponse(new Response(200, [], (string) json_encode([
+                'data' => [['id' => 'second-domain-model', 'category' => 'chat']],
+            ])), 'same-secret', 'https://api.apib.ai/v1');
+            $this->assertSame('second-domain-model', $second->listModelMetadata()[0]->getId());
+            $this->assertCount(2, $storage);
+            foreach (array_keys($storage) as $key) {
+                $this->assertStringNotContainsString('same-secret', $key);
+                $this->assertStringNotContainsString('api.apib.ai', $key);
+            }
+        } finally {
+            AiClient::setCache($previousCache);
+            putenv($previousEnvironment === false ? 'APIMART_BASE_URL' : 'APIMART_BASE_URL=' . $previousEnvironment);
+        }
+    }
+
     /**
      * @dataProvider malformedResponseProvider
      */
@@ -246,13 +287,14 @@ class ApimartModelMetadataDirectoryTest extends TestCase
 
     private function directoryForResponse(
         Response $response,
-        string $apiKey = 'test-api-key'
+        string $apiKey = 'test-api-key',
+        string $baseUrl = 'https://api.apimart.ai/v1'
     ): ApimartModelMetadataDirectory {
         $transporter = $this->createMock(HttpTransporterInterface::class);
         $transporter->expects($this->once())->method('send')->with($this->callback(
-            static function (Request $request) use ($apiKey): bool {
+            static function (Request $request) use ($apiKey, $baseUrl): bool {
                 return $request->getMethod()->isGet() &&
-                    $request->getUri() === 'https://api.apimart.ai/v1/models?expand=category' &&
+                    $request->getUri() === $baseUrl . '/models?expand=category' &&
                     $request->getHeaderAsString('Authorization') === 'Bearer ' . $apiKey;
             }
         ))->willReturn($response);

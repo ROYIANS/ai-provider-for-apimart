@@ -30,6 +30,13 @@ class ProviderIntegrationTest extends TestCase
     private $previousApiKey;
 
     /**
+     * @var string|false The pre-test API endpoint environment value.
+     */
+    private $previousBaseUrl;
+
+    private string $baseUrl = 'https://api.apimart.ai/v1';
+
+    /**
      * @var list<Request> Requests made by the SDK and adapter.
      */
     private array $requests = [];
@@ -37,7 +44,9 @@ class ProviderIntegrationTest extends TestCase
     protected function setUp(): void
     {
         $this->previousApiKey = getenv('APIMART_API_KEY');
+        $this->previousBaseUrl = getenv('APIMART_BASE_URL');
         putenv('APIMART_API_KEY=test-key');
+        putenv('APIMART_BASE_URL');
     }
 
     protected function tearDown(): void
@@ -47,10 +56,19 @@ class ProviderIntegrationTest extends TestCase
         } else {
             putenv('APIMART_API_KEY=' . $this->previousApiKey);
         }
+        if ($this->previousBaseUrl === false) {
+            putenv('APIMART_BASE_URL');
+        } else {
+            putenv('APIMART_BASE_URL=' . $this->previousBaseUrl);
+        }
     }
 
-    public function testTextExampleUsesTheRequestedCatalogModelAndEnvironmentAuthentication(): void
+    /**
+     * @dataProvider endpointProvider
+     */
+    public function testTextExampleUsesTheRequestedCatalogModelAndEnvironmentAuthentication(string $baseUrl): void
     {
+        $this->useEndpoint($baseUrl);
         $registry = $this->registerProviderWithFakeTransporter(2);
 
         $text = AiClient::prompt('Explain how WordPress hooks work.')
@@ -59,8 +77,8 @@ class ProviderIntegrationTest extends TestCase
 
         $this->assertSame('Hooks connect callbacks to WordPress events.', $text);
         $this->assertSame([
-            'https://api.apimart.ai/v1/models?expand=category',
-            'https://api.apimart.ai/v1/chat/completions',
+            $baseUrl . '/models?expand=category',
+            $baseUrl . '/chat/completions',
         ], $this->requestUris());
         $this->assertSame('catalog-chat-model', $this->requests[1]->getData()['model']);
     }
@@ -81,8 +99,12 @@ class ProviderIntegrationTest extends TestCase
         $this->assertSame('catalog-chat-model', $this->requests[1]->getData()['model']);
     }
 
-    public function testImageExampleSelectsTheImageContractAndConvertsTheCompletedTask(): void
+    /**
+     * @dataProvider endpointProvider
+     */
+    public function testImageExampleSelectsTheImageContractAndConvertsTheCompletedTask(string $baseUrl): void
     {
+        $this->useEndpoint($baseUrl);
         $registry = $this->registerProviderWithFakeTransporter(3);
 
         $result = AiClient::prompt('A small lighthouse in a watercolor landscape.')
@@ -97,14 +119,18 @@ class ProviderIntegrationTest extends TestCase
         $this->assertSame('apimart', $result->getProviderMetadata()->getId());
         $this->assertSame(['integration-image-task'], $result->getAdditionalData()['task_ids']);
         $this->assertSame([
-            'https://api.apimart.ai/v1/models?expand=category',
-            'https://api.apimart.ai/v1/images/generations',
-            'https://api.apimart.ai/v1/tasks/integration-image-task',
+            $baseUrl . '/models?expand=category',
+            $baseUrl . '/images/generations',
+            $baseUrl . '/tasks/integration-image-task',
         ], $this->requestUris());
     }
 
-    public function testSpeechExampleUsesTextToSpeechCapabilityAndReturnsInlineAudio(): void
+    /**
+     * @dataProvider endpointProvider
+     */
+    public function testSpeechExampleUsesTextToSpeechCapabilityAndReturnsInlineAudio(string $baseUrl): void
     {
+        $this->useEndpoint($baseUrl);
         $registry = $this->registerProviderWithFakeTransporter(2);
 
         $result = AiClient::prompt('Welcome to our website.')
@@ -119,8 +145,8 @@ class ProviderIntegrationTest extends TestCase
         $this->assertSame('RIFF-fake-audio', base64_decode($audio->getBase64Data(), true));
         $this->assertSame('gpt-4o-mini-tts', $result->getModelMetadata()->getId());
         $this->assertSame([
-            'https://api.apimart.ai/v1/models?expand=category',
-            'https://api.apimart.ai/v1/audio/speech',
+            $baseUrl . '/models?expand=category',
+            $baseUrl . '/audio/speech',
         ], $this->requestUris());
     }
 
@@ -131,6 +157,25 @@ class ProviderIntegrationTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('unknown-model');
         $registry->getProviderModel('apimart', 'unknown-model');
+    }
+
+    /**
+     * @return array<string, array{string}> Default and user-supplied alternate API domains.
+     */
+    public function endpointProvider(): array
+    {
+        return [
+            'default' => ['https://api.apimart.ai/v1'],
+            'apib' => ['https://api.apib.ai/v1'],
+            'aiuxu' => ['https://api.aiuxu.com/v1'],
+            'aishuch' => ['https://api.aishuch.com/v1'],
+        ];
+    }
+
+    private function useEndpoint(string $baseUrl): void
+    {
+        $this->baseUrl = $baseUrl;
+        putenv('APIMART_BASE_URL=' . $baseUrl);
     }
 
     /**
@@ -167,7 +212,7 @@ class ProviderIntegrationTest extends TestCase
     private function responseForRequest(Request $request): Response
     {
         switch ($request->getUri()) {
-            case 'https://api.apimart.ai/v1/models?expand=category':
+            case $this->baseUrl . '/models?expand=category':
                 return $this->jsonResponse(['success' => true, 'data' => [
                     // Sorts first so text preferences must actually choose the requested model.
                     ['id' => 'another-chat-model', 'category' => 'chat', 'capability_tags' => ['Text']],
@@ -176,7 +221,7 @@ class ProviderIntegrationTest extends TestCase
                     ['id' => 'gpt-4o-mini-tts', 'category' => 'audio', 'capability_tags' => ['Audio']],
                     ['id' => 'unknown-model', 'category' => 'unknown'],
                 ]]);
-            case 'https://api.apimart.ai/v1/chat/completions':
+            case $this->baseUrl . '/chat/completions':
                 return $this->jsonResponse([
                     'id' => 'integration-completion',
                     'model' => 'catalog-chat-model',
@@ -190,9 +235,9 @@ class ProviderIntegrationTest extends TestCase
                     ]],
                     'usage' => ['prompt_tokens' => 8, 'completion_tokens' => 9, 'total_tokens' => 17],
                 ]);
-            case 'https://api.apimart.ai/v1/images/generations':
+            case $this->baseUrl . '/images/generations':
                 return $this->jsonResponse(['code' => 200, 'data' => [['task_id' => 'integration-image-task']]]);
-            case 'https://api.apimart.ai/v1/tasks/integration-image-task':
+            case $this->baseUrl . '/tasks/integration-image-task':
                 return $this->jsonResponse(['code' => 200, 'data' => [
                     'id' => 'integration-image-task',
                     'status' => 'completed',
@@ -201,7 +246,7 @@ class ProviderIntegrationTest extends TestCase
                         'expires_at' => 1793100000,
                     ]]],
                 ]]);
-            case 'https://api.apimart.ai/v1/audio/speech':
+            case $this->baseUrl . '/audio/speech':
                 return new Response(200, ['Content-Type' => 'audio/wav'], 'RIFF-fake-audio');
             default:
                 $this->fail('Unexpected HTTP request: ' . $request->getUri());

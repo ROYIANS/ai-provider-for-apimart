@@ -23,13 +23,23 @@ class PluginBootstrapTest extends TestCase
 
     public function testRegistersInitAtPriorityFiveAndUsesTheWordPressPluginPath(): void
     {
-        $result = $this->runBootstrap(null);
+        $result = $this->runBootstrap('1.3.1');
 
         $this->assertSame([
             [
                 'hook' => 'init',
                 'callback' => 'WordPress\\ApimartAiProvider\\register_provider',
                 'priority' => 5,
+            ],
+            [
+                'hook' => 'admin_menu',
+                'callback' => ['WordPress\\ApimartAiProvider\\Admin\\Settings', 'addPage'],
+                'priority' => 10,
+            ],
+            [
+                'hook' => 'admin_init',
+                'callback' => ['WordPress\\ApimartAiProvider\\Admin\\Settings', 'registerSettings'],
+                'priority' => 10,
             ],
         ], $result['hooks']);
         $this->assertSame(
@@ -68,8 +78,8 @@ class PluginBootstrapTest extends TestCase
     public function incompatibleSdkVersionProvider(): array
     {
         return [
-            'previous minor' => ['1.3.1'],
-            'latest unsupported patch' => ['1.3.99'],
+            'previous patch' => ['1.3.0'],
+            'previous minor' => ['1.2.99'],
             'unsupported next major' => ['2.0.0'],
         ];
     }
@@ -85,6 +95,8 @@ class PluginBootstrapTest extends TestCase
         $this->assertSame(2, $result['registryAccess']);
         $this->assertSame([$providerClass, $providerClass], $result['checkedProviders']);
         $this->assertSame([$providerClass], $result['registeredProviders']);
+        $this->assertSame('', $result['notice']);
+        $this->assertCount(3, $result['hooks']);
     }
 
     /**
@@ -93,7 +105,9 @@ class PluginBootstrapTest extends TestCase
     public function compatibleSdkVersionProvider(): array
     {
         return [
-            'minimum version' => ['1.4.0'],
+            'WordPress 7.0.3 bundled SDK' => ['1.3.1'],
+            'later patch' => ['1.3.99'],
+            'next minor' => ['1.4.0'],
             'later version' => ['1.5.0'],
         ];
     }
@@ -112,11 +126,71 @@ class PluginBootstrapTest extends TestCase
 
     public function testAnExistingPluginDirectoryConstantIsPreserved(): void
     {
-        $result = $this->runBootstrap(null, false, 1, true, '/custom/plugin/path');
+        $result = $this->runBootstrap('1.3.1', false, 1, true, '/custom/plugin/path');
 
         $this->assertSame('/custom/plugin/path', $result['pluginDir']);
         $this->assertNull($result['pluginBasenameArgument']);
-        $this->assertCount(1, $result['hooks']);
+        $this->assertCount(3, $result['hooks']);
+    }
+
+    public function testMissingSdkSchedulesAnActionableAdministratorNotice(): void
+    {
+        $result = $this->runBootstrap(null);
+
+        $this->assertSame([
+            'hook' => 'admin_notices',
+            'callback' => 'WordPress\\ApimartAiProvider\\show_sdk_requirement_notice',
+            'priority' => 10,
+        ], $result['hooks'][1]);
+        $this->assertStringContainsString('notice notice-error', $result['notice']);
+        $this->assertStringContainsString('PHP AI Client 1.3.1', $result['notice']);
+        $this->assertStringContainsString('The SDK is not loaded', $result['notice']);
+    }
+
+    public function testIncompatibleSdkNoticeIncludesTheLoadedSdkVersion(): void
+    {
+        $result = $this->runBootstrap('1.3.0');
+
+        $this->assertStringContainsString('The loaded SDK version is 1.3.0', $result['notice']);
+        $this->assertStringContainsString('APIMart connector could not be registered', $result['notice']);
+    }
+
+    public function testSdkVersionInAdministratorNoticeIsHtmlEscaped(): void
+    {
+        $result = $this->runBootstrap('0.0.0<script>alert("x")</script>');
+
+        $this->assertStringContainsString(
+            '0.0.0&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;',
+            $result['notice']
+        );
+        $this->assertStringNotContainsString('<script>', $result['notice']);
+    }
+
+    public function testSdkRequirementNoticeIsHiddenWithoutPluginActivationPermission(): void
+    {
+        $result = $this->runBootstrap(null, false, 1, true, null, false);
+
+        $this->assertCount(2, $result['hooks']);
+        $this->assertSame('', $result['notice']);
+    }
+
+    public function testInvalidApiBaseUrlSkipsRegistrationAndDisplaysAnAdministratorNotice(): void
+    {
+        $result = $this->runBootstrap('1.3.1', false, 1, true, null, true, true);
+
+        $this->assertSame([], $result['registeredProviders']);
+        $this->assertCount(2, $result['hooks']);
+        $this->assertSame('admin_notices', $result['hooks'][1]['hook']);
+        $this->assertStringContainsString('APIMART_BASE_URL is invalid', $result['notice']);
+        $this->assertStringContainsString('HTTPS API base URL', $result['notice']);
+    }
+
+    public function testInvalidApiBaseUrlNoticeIsHiddenWithoutPluginActivationPermission(): void
+    {
+        $result = $this->runBootstrap('1.3.1', false, 1, true, null, false, true);
+
+        $this->assertSame([], $result['registeredProviders']);
+        $this->assertSame('', $result['notice']);
     }
 
     /**
@@ -130,6 +204,8 @@ class PluginBootstrapTest extends TestCase
      * @param int $initCount The number of times to execute the registered init callback.
      * @param bool $wordpress Whether to define WordPress's bootstrap constants.
      * @param string|null $pluginDir A pre-existing plugin directory constant.
+     * @param bool $canActivatePlugins Whether the current user can activate plugins.
+     * @param bool $invalidBaseUrl Whether provider registration rejects server configuration.
      * @return array<string, mixed> The subprocess's observable state.
      */
     private function runBootstrap(
@@ -137,7 +213,9 @@ class PluginBootstrapTest extends TestCase
         bool $registered = false,
         int $initCount = 1,
         bool $wordpress = true,
-        ?string $pluginDir = null
+        ?string $pluginDir = null,
+        bool $canActivatePlugins = true,
+        bool $invalidBaseUrl = false
     ): array {
         $sdkDeclaration = '';
         if ($sdkVersion !== null) {
@@ -153,6 +231,9 @@ namespace WordPress\AiClient {
             return $GLOBALS['registry'];
         }
     }
+}
+namespace WordPress\AiClient\Common\Exception {
+    class InvalidArgumentException extends \InvalidArgumentException {}
 }
 PHP_CODE
             );
@@ -181,6 +262,9 @@ namespace {
 
         public function registerProvider(string $class): void
         {
+            if (__INVALID_BASE_URL__) {
+                throw new \WordPress\AiClient\Common\Exception\InvalidArgumentException('Invalid base URL');
+            }
             $this->registeredProviders[] = $class;
             $this->registered = true;
         }
@@ -201,6 +285,27 @@ namespace {
         ];
     }
 
+    function current_user_can(string $capability): bool
+    {
+        if ($capability !== 'activate_plugins') {
+            throw new \RuntimeException('Unexpected permission check: ' . $capability);
+        }
+        return __CAN_ACTIVATE_PLUGINS__;
+    }
+
+    function __(string $message, string $domain): string
+    {
+        if ($domain !== 'ai-provider-for-apimart') {
+            throw new \RuntimeException('Unexpected translation domain: ' . $domain);
+        }
+        return $message;
+    }
+
+    function esc_html(string $value): string
+    {
+        return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+    }
+
     if (__WORDPRESS__) {
         define('ABSPATH', '/wordpress/');
         define('WP_PLUGIN_DIR', '/wordpress/wp-content/plugins');
@@ -217,8 +322,17 @@ namespace {
         }
     }
 
+    ob_start();
+    foreach ($GLOBALS['hooks'] as $hook) {
+        if ($hook['hook'] === 'admin_notices') {
+            call_user_func($hook['callback']);
+        }
+    }
+    $notice = ob_get_clean();
+
     echo json_encode([
         'hooks' => $GLOBALS['hooks'],
+        'notice' => $notice,
         'pluginDir' => defined('AI_PROVIDER_FOR_APIMART_PLUGIN_DIR') ? AI_PROVIDER_FOR_APIMART_PLUGIN_DIR : null,
         'pluginBasenameArgument' => $GLOBALS['pluginBasenameArgument'] ?? null,
         'sdkLoaded' => class_exists('WordPress\\AiClient\\AiClient', false),
@@ -235,6 +349,8 @@ PHP_CODE
                 '__PLUGIN_DIR__' => var_export($pluginDir, true),
                 '__PLUGIN_PATH__' => var_export(dirname(__DIR__) . '/plugin.php', true),
                 '__INIT_COUNT__' => (string) $initCount,
+                '__CAN_ACTIVATE_PLUGINS__' => $canActivatePlugins ? 'true' : 'false',
+                '__INVALID_BASE_URL__' => $invalidBaseUrl ? 'true' : 'false',
             ]);
 
         $process = proc_open(

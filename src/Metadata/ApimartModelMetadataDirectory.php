@@ -48,18 +48,21 @@ class ApimartModelMetadataDirectory extends AbstractOpenAiCompatibleModelMetadat
     }
 
     /**
-     * Keeps key-scoped APIMart catalogs separate in both local and persistent caches.
+     * Keeps endpoint- and key-scoped APIMart catalogs separate in local and persistent caches.
      *
-     * Only a hash of the authentication headers is used in the cache key.
+     * Only a hash of the endpoint and authentication headers is used in the cache key.
      *
-     * @return string The provider and credentials cache namespace.
+     * @return string The provider, endpoint and credentials cache namespace.
      */
     protected function getBaseCacheKey(): string
     {
         $request = $this->createRequest(HttpMethodEnum::GET(), 'models');
         $request = $this->getRequestAuthentication()->authenticateRequest($request);
 
-        return parent::getBaseCacheKey() . '_' . hash('sha256', serialize($request->getHeaders()));
+        return parent::getBaseCacheKey() . '_' . hash('sha256', serialize([
+            $request->getUri(),
+            $request->getHeaders(),
+        ]));
     }
 
     /**

@@ -2,7 +2,7 @@
 
 This repository maintains the APIMart adaptation at [ROYIANS/ai-provider-for-apimart](https://github.com/ROYIANS/ai-provider-for-apimart). The original implementation comes from the WordPress AI Team's [OpenAI provider](https://github.com/WordPress/ai-provider-for-openai); retain its license and attribution.
 
-Use PHP 7.4-compatible syntax and PHP AI Client 1.4.0 APIs. Run `composer install`, `composer test`, `composer lint`, and `composer validate --strict`. API tests must use fake HTTP transporters rather than a real key. Add protocol tests for changes to requests, response normalization, model discovery, task state handling or error behavior. When extending support, record the relevant official APIMart contract and its model-specific limits in `docs/compatibility.md`.
+Use PHP 7.4-compatible syntax and PHP AI Client 1.3.1 APIs. Run `composer install`, `composer test`, `composer lint`, and `composer validate --strict`. API tests must use fake HTTP transporters rather than a real key. Add protocol tests for changes to requests, response normalization, model discovery, task state handling or error behavior. When extending support, record the relevant official APIMart contract and its model-specific limits in `docs/compatibility.md`.
 
 An APIMart catalog tag is not enough to establish an endpoint's request/response contract. Do not infer model capabilities solely from OpenAI naming patterns. Changes to the advertised catalog affect SDK model selection and need corresponding tests. Keep local polling settings out of outbound API bodies.
 

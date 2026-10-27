@@ -4,9 +4,17 @@
 
 ## 身份和运行条件
 
-Composer 包名为 `royians/ai-provider-for-apimart`，命名空间为 `WordPress\ApimartAiProvider`，Provider ID 为 `apimart`。基址固定为 `https://api.apimart.ai/v1`。WordPress 插件和 Composer 两种用法均保留；Composer 正式依赖 `wordpress/php-ai-client:^1.4`，PHP 最低 7.4。插件在缺少 SDK 或 SDK 低于 1.4 时跳过注册。
+Composer 包名为 `royians/ai-provider-for-apimart`，命名空间为 `WordPress\ApimartAiProvider`，Provider ID 为 `apimart`。默认基址为 `https://api.apimart.ai/v1`。WordPress 插件和 Composer 两种用法均保留；Composer 正式依赖 `wordpress/php-ai-client:^1.3.1`，PHP 最低 7.4。插件在缺少 SDK 或 SDK 低于 1.3.1 或达到 2.0 时跳过注册，并向有插件管理权限的管理员显示原因。
+
+0.1.1 提供“设置 → APIMart”域名选择，预设 `api.apimart.ai`、`api.apib.ai`、`api.aiuxu.com`、`api.aishuch.com`，路径均为 `/v1`。备用域名依据站点所有者提供的信息及确认加入；未携带 Key 的 HTTPS 探测返回同类 APIMart 401 认证错误，未验证真实生成。`APIMART_BASE_URL` 环境变量优先于同名常量，再优先于 WordPress 保存值；显式配置仅接受合法 HTTPS 基址，拒绝 URL 内凭据、查询和 fragment。模型目录、文本、图片提交与任务轮询、TTS 共享基址。目录缓存同时按接口地址和认证摘要隔离；域名切换为手动操作，生成请求不会因错误被自动跨域重放。
 
 密钥变量和常量名均为 `APIMART_API_KEY`，SDK 优先读取环境变量。所有模型列表、生成和任务查询请求经过 Bearer 鉴权。图标使用用户提供的 `assets/images/apimart.svg`；WordPress 通过插件目录常量保留符号链接路径。
+
+## WordPress 连接页面兼容性修复（0.1.1）
+
+0.1.0 将最低 SDK 误设为 1.4.0，导致内置 SDK 1.3.1 的 WordPress 7.0–7.1 在插件已启用时跳过 Provider 注册，APIMart 不出现在“设置 → 连接”。WordPress AI 插件的版本号与 PHP AI Client SDK 版本不同，不能用前者判断 SDK 是否兼容。
+
+已核对 SDK 1.3.1 的文本、图像、TTS 和 TokenUsage 合同，当前实现没有依赖 1.4 新增的 Embedding API。0.1.1 支持 SDK 1.3.1，继续在 init 优先级 5 注册；WordPress 在 init 优先级 15 自动从同一默认 Registry 发现 Provider，因此不需要额外手工注册 Connector，也不需要先填写 API Key 才显示卡片。
 
 ## 模型目录
 
@@ -36,7 +44,7 @@ Composer 包名为 `royians/ai-provider-for-apimart`，命名空间为 `WordPres
 
 支持 PNG/JPEG、1–4 张、`1:1` / `2:3` / `3:2`，最多 15 张公开 URL 参考图。掩码要求同时提供参考图；透明背景与 JPEG 冲突会在发送前拒绝。输出仅为 SDK remote 文件；不下载图片，也不假设固定 URL 有效期。每个任务完整数据放在 `additionalData.tasks`，其中保留 `result.images[*].expires_at`，任务 ID 放在 `additionalData.task_ids`。
 
-同步 SDK 调用会阻塞轮询。customOptions 的 `apimart_poll_timeout` 默认为 120 秒（范围 0.1–600），`apimart_poll_interval` 默认为 2 秒（范围 0.1–60）；这两个参数不会发送给 APIMart。提交和所有任务共享一个截止时间，单次 HTTP timeout 取剩余时间与调用方配置的较小值。有限请求预算避免异常时钟下无限轮询。SDK 1.4 仅在 Guzzle 或实现 ClientWithOptionsInterface 的客户端上应用 RequestOptions；普通 PSR-18 客户端会忽略这些选项，单次请求可能超出轮询期限。使用 README 中的 Guzzle 配置，或由集成环境提供能执行请求超时的 transporter。
+同步 SDK 调用会阻塞轮询。customOptions 的 `apimart_poll_timeout` 默认为 120 秒（范围 0.1–600），`apimart_poll_interval` 默认为 2 秒（范围 0.1–60）；这两个参数不会发送给 APIMart。提交和所有任务共享一个截止时间，单次 HTTP timeout 取剩余时间与调用方配置的较小值。有限请求预算避免异常时钟下无限轮询。SDK 1.3.1 仅在 Guzzle 或实现 ClientWithOptionsInterface 的客户端上应用 RequestOptions；普通 PSR-18 客户端会忽略这些选项，单次请求可能超出轮询期限。使用 README 中的 Guzzle 配置，或由集成环境提供能执行请求超时的 transporter。
 
 处理 submitted/pending/processing/completed/failed/cancelled。未知状态、无任务 ID、错误业务码、无结果、非法 URL 均报错。轮询超时包含任务 ID，并说明远程任务可能继续执行；没有远程取消或自动重新提交，以免重复付费。
 

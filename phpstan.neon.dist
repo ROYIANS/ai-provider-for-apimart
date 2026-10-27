@@ -2,4 +2,6 @@ parameters:
     level: max
     paths:
         - src
+    scanFiles:
+        - tooling/phpstan-wordpress.php
     treatPhpDocTypesAsCertain: false

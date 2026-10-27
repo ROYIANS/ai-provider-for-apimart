@@ -1,17 +1,17 @@
 # 本地验证记录
 
-日期：2026-10-27（Asia/Shanghai）。适配分支：`codex/apimart-provider`。验证不需要 WordPress、数据库或真实 API Key。
+日期：2026-10-27（Asia/Shanghai）。适配分支：`codex/apimart-provider`。当前版本：0.1.1。自动化测试不需要 WordPress、数据库或真实 API Key；另行运行了本地完整 WordPress 后台回归。
 
-本机没有原生 PHP/Composer，使用 Docker 隔离执行；未安装全局 PHP，也未使用 pnpm。主工作区 Composer lock 中 SDK 保持 1.4.0。最低依赖与最新 SDK 的更新均在 `/tmp` 独立副本执行，没有用最新依赖覆盖主工作区。
+本机没有原生 PHP/Composer，使用 Docker 隔离执行；未安装全局 PHP，也未使用 pnpm。主工作区 Composer lock 中 SDK 为 1.3.1，与 WordPress 7.0.3 内置版本一致。最低依赖与最新 SDK 的更新均在 `/tmp` 独立副本执行，没有用最新依赖覆盖主工作区。
 
 | 环境 | SDK | PHPUnit | 结果 |
 | --- | --- | --- | --- |
-| PHP 7.4.33，主 lock | 1.4.0 | 9.6.35 | 152 tests / 566 assertions，通过 |
-| PHP 8.5.12，主 lock | 1.4.0 | 9.6.35 | 152 tests / 566 assertions，通过 |
-| PHP 8.5.12，最新可解析 SDK | 1.5.0 | 9.6.35 | 152 tests / 566 assertions，通过 |
-| PHP 7.4.33，`--prefer-lowest --prefer-stable` | 1.4.0 | 9.6.33 | 152 tests / 566 assertions，通过 |
+| PHP 7.4.33，主 lock | 1.3.1 | 9.6.35 | 209 tests / 815 assertions，通过 |
+| PHP 8.5.12，主 lock | 1.3.1 | 9.6.35 | 209 tests / 815 assertions，通过 |
+| PHP 8.5.12，最新可解析 SDK | 1.5.0 | 9.6.35 | 209 tests / 815 assertions，通过 |
+| PHP 7.4.33，`--prefer-lowest --prefer-stable` | 1.3.1 | 9.6.33 | 209 tests / 815 assertions，通过 |
 
-主 lock、SDK 1.5.0 和最低依赖环境均通过 PHPCS 和 PHPStan level max。PHPCS 检查 17 个源码、插件及测试文件；4 个独立示例文件额外通过 PHPCS。`composer validate --strict` 通过，`git diff --check` 通过。
+主 lock、SDK 1.5.0 和最低依赖环境均通过 PHPCS 和 PHPStan level max。PHPCS 检查 20 个源码、插件及测试文件；0.1.0 的 4 个独立示例文件额外通过 PHPCS。`composer validate --strict` 通过，`git diff --check` 通过。
 
 最低依赖解析中的主要版本为 PHPStan 2.1.0、PHP_CodeSniffer 4.0.2、Slevomat 8.23.0、PHPCompatibility dev-develop (`4b1ac83`)、Nyholm PSR-7 1.8.0、PHP HTTP Discovery 1.0.0。最新 SDK 为 1.5.0 (`77a59957763d550a9c92025a15bf565048b977b5`)。
 
@@ -41,16 +41,32 @@ docker run --rm -e COMPOSER_ROOT_VERSION=dev-codex/apimart-provider \
 - 图像生成和编辑参数、任务提交、多任务、有界轮询、HTTP timeout 参数、失败/取消/超时/未知状态、畸形返回、远程结果和 expires_at。
 - TTS 格式/声音、UTF-8 与 4096 字符边界、speed、二进制返回与 JSON/HTML/HTTP 错误。
 - WordPress 启动的无 ABSPATH、缺少 SDK、不兼容 SDK、重复注册、init 优先级、symlink 路径和目录常量。
+- SDK 1.3.1 注册下界、管理员依赖提示、权限与 HTML 转义；无效显式 API 地址跳过 APIMart 注册并显示提示，WordPress 继续启动。
+- 四个 API 域名的完整文本、图片任务和语音链路；环境变量/常量/WordPress 设置优先级、HTTPS 地址校验、尾斜线规范化、凭据页面与目录缓存隔离。
+- 后台 Settings API 注册、预设允许列表、非法输入、核心 nonce 表单、权限、输出转义，以及环境配置覆盖时保留已有选择。
 - 使用真实 SDK Registry、模型目录和 PromptBuilder 的文本/图像/语音三条完整链路；仅 HTTP 边界使用 fake transporter。
+
+## WordPress 后台回归与域名检查
+
+0.1.0 把 SDK 最低版本误设为 1.4.0；WordPress 7.0–7.1 内置 SDK 为 1.3.1，插件启用后会静默跳过注册。0.1.1 将 Composer 约束和运行时门槛统一为 `^1.3.1`，并为缺少或不兼容 SDK 增加管理员提示。
+
+使用官方 WordPress 7.0.3 发行包、内置 PHP AI Client 1.3.1、官方 SQLite Database Integration 1.8 和独立本地数据库搭建回归站点。将实际构建的 0.1.1 ZIP 解压安装并激活，验证：
+
+- `wp_get_connector('apimart')` 存在，Provider 活跃，图标 URL 正确，核心自动注册 `connectors_ai_apimart_api_key` 设置。
+- 浏览器中的“设置 → 连接”实际显示 APIMart 卡片和 Set up 按钮。
+- “设置 → APIMart”提供四个完整 API 地址。浏览器选择 `apib.ai` 并保存后显示 Settings saved，数据库值为 `https://api.apib.ai/v1`，Provider 的文本 URL 为 `https://api.apib.ai/v1/chat/completions`。
+- 显式配置无效 HTTP 地址后，完整 WordPress 仍成功启动，APIMart 未注册，管理员可看到 `APIMART_BASE_URL is invalid` 提示。
+
+本地测试站不使用真实 Key。对 `api.apimart.ai`、`api.apib.ai`、`api.aiuxu.com`、`api.aishuch.com` 的 `/v1/models` 进行无凭据 HTTPS 探测，均返回 HTTP 401、JSON `apimart_error`。备用地址来自站点所有者提供的信息及确认；该检查只证明地址连通和认证错误响应，未证明真实生成成功。
 
 ## 发行包
 
-初次检查时改动尚未提交，使用独立临时 Git 副本构造工作区 tree，再以 `git archive` 检查 Composer 包；该检查没有修改真实 index。Composer 包有 18 个文件，WordPress 包有 12 个文件。Composer 包包含 Provider、模型、图标、许可证、兼容性文档和示例，排除 WordPress bootstrap、手动 autoloader、测试、IDE 与 CI 文件。
+0.1.0 初次检查使用独立临时 Git 副本构造工作区 tree，再以 `git archive` 检查 Composer 包；该检查没有修改真实 index，当时 Composer 包有 18 个文件，WordPress 包有 12 个文件。0.1.1 新增后台设置类，WordPress ZIP 有 13 个文件。Composer 包保留 Provider、模型、图标、许可证、兼容性文档和示例，排除 WordPress bootstrap、手动 autoloader、测试、IDE 与 CI 文件。
 
-WordPress 包通过 `rsync --exclude-from=.distignore` 暂存验证，包含 `plugin.php`、`src/autoload.php`、Provider/模型和 APIMart 图标，排除 vendor、tests、IDE 设置、PHPUnit 缓存、开发文档和示例。可通过 `bash scripts/build-plugin.sh` 重建带有 `ai-provider-for-apimart/` 顶层目录的可安装 ZIP，产物位于 `dist/`，不进入 Git 或后续打包内容。构建脚本会检查 ZIP 完整性并打印 SHA-256。
+WordPress 包通过 `rsync --exclude-from=.distignore` 暂存验证，包含 `plugin.php`、`src/autoload.php`、Provider/模型、后台设置类和 APIMart 图标，排除 vendor、tests、IDE 设置、PHPUnit 缓存、开发文档、静态分析 stubs 和示例。可通过 `bash scripts/build-plugin.sh` 重建带有 `ai-provider-for-apimart/` 顶层目录的可安装 ZIP，产物位于 `dist/`，不进入 Git 或后续打包内容。构建脚本会检查 ZIP 完整性并打印 SHA-256。
 
 ## 尚未验证
 
-未执行真实 APIMart 请求，未运行完整 WordPress 后台，也未在本地逐一运行 CI 定义的 PHP 8.0–8.4 全矩阵。测试确认适配和 SDK 协议转换的本地行为；无法据此确认账户权限、线上服务返回、音频编码实际质量、图像编辑效果或计费。
+未执行带真实 Key 的 APIMart 请求，未访问用户的生产 WordPress 后台，也未在本地逐一运行 CI 定义的 PHP 8.0–8.4 全矩阵。测试确认适配、SDK 协议转换以及本地 WordPress 注册和设置保存行为；无法据此确认账户权限、线上生成返回、音频编码实际质量、图像编辑效果或计费。
 
 图片轮询期限能否限制单次网络等待，取决于 transporter 执行 RequestOptions 的能力。真实服务验收前应使用 README 中的 Guzzle 配置或等价的选项感知 transporter。工具、JSON Schema、Embedding 和其他未声明能力的边界见 [compatibility.md](compatibility.md)。
