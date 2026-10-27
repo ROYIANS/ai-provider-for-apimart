@@ -2,28 +2,25 @@
 
 declare(strict_types=1);
 
-namespace WordPress\OpenAiAiProvider\Tests\unit\Provider;
+namespace WordPress\ApimartAiProvider\Tests\unit\Provider;
 
 use PHPUnit\Framework\TestCase;
-use WordPress\AiClient\AiClient;
 use WordPress\AiClient\Common\Exception\RuntimeException;
 use WordPress\AiClient\Providers\ApiBasedImplementation\ListModelsApiBasedProviderAvailability;
 use WordPress\AiClient\Providers\DTO\ProviderMetadata;
 use WordPress\AiClient\Providers\Models\Contracts\ModelInterface;
 use WordPress\AiClient\Providers\Models\DTO\ModelMetadata;
-use WordPress\AiClient\Providers\Models\EmbeddingGeneration\Contracts\EmbeddingGenerationModelInterface;
 use WordPress\AiClient\Providers\Models\Enums\CapabilityEnum;
-use WordPress\OpenAiAiProvider\Metadata\OpenAiModelMetadataDirectory;
-use WordPress\OpenAiAiProvider\Models\OpenAiEmbeddingGenerationModel;
-use WordPress\OpenAiAiProvider\Models\OpenAiImageGenerationModel;
-use WordPress\OpenAiAiProvider\Models\OpenAiTextGenerationModel;
-use WordPress\OpenAiAiProvider\Models\OpenAiTextToSpeechConversionModel;
-use WordPress\OpenAiAiProvider\Provider\OpenAiProvider;
+use WordPress\ApimartAiProvider\Metadata\ApimartModelMetadataDirectory;
+use WordPress\ApimartAiProvider\Models\ApimartImageGenerationModel;
+use WordPress\ApimartAiProvider\Models\ApimartTextGenerationModel;
+use WordPress\ApimartAiProvider\Models\ApimartTextToSpeechConversionModel;
+use WordPress\ApimartAiProvider\Provider\ApimartProvider;
 
 /**
- * @covers \WordPress\OpenAiAiProvider\Provider\OpenAiProvider
+ * @covers \WordPress\ApimartAiProvider\Provider\ApimartProvider
  */
-class OpenAiProviderTest extends TestCase
+class ApimartProviderTest extends TestCase
 {
     /**
      * Tests URL resolution and endpoint concatenation with base URL.
@@ -32,9 +29,9 @@ class OpenAiProviderTest extends TestCase
      */
     public function testBaseUrlAndUrlConstruction(): void
     {
-        $this->assertSame('https://api.openai.com/v1', OpenAiProvider::url());
-        $this->assertSame('https://api.openai.com/v1/models', OpenAiProvider::url('models'));
-        $this->assertSame('https://api.openai.com/v1/responses', OpenAiProvider::url('/responses'));
+        $this->assertSame('https://api.apimart.ai/v1', ApimartProvider::url());
+        $this->assertSame('https://api.apimart.ai/v1/models', ApimartProvider::url('models'));
+        $this->assertSame('https://api.apimart.ai/v1/chat/completions', ApimartProvider::url('/chat/completions'));
     }
 
     /**
@@ -44,27 +41,20 @@ class OpenAiProviderTest extends TestCase
      */
     public function testProviderMetadata(): void
     {
-        $metadata = OpenAiProvider::metadata();
+        $metadata = ApimartProvider::metadata();
 
         $this->assertInstanceOf(ProviderMetadata::class, $metadata);
-        $this->assertSame('openai', $metadata->getId());
-        $this->assertSame('OpenAI', $metadata->getName());
+        $this->assertSame('apimart', $metadata->getId());
+        $this->assertSame('APIMart', $metadata->getName());
         $this->assertTrue($metadata->getType()->isCloud());
-        $this->assertSame('https://platform.openai.com/api-keys', $metadata->getCredentialsUrl());
+        $this->assertSame('https://apimart.ai/keys', $metadata->getCredentialsUrl());
         $this->assertTrue($metadata->getAuthenticationMethod()->isApiKey());
 
-        if (version_compare(AiClient::VERSION, '1.2.0', '>=')) {
-            $description = $metadata->getDescription();
-            $this->assertNotNull($description);
-            $this->assertStringContainsString('GPT and Dall-E', $description);
-        }
-
-        if (version_compare(AiClient::VERSION, '1.3.0', '>=')) {
-            $logoPath = $metadata->getLogoPath();
-            $this->assertNotNull($logoPath);
-            $this->assertStringEndsWith('assets/images/openai.svg', $logoPath);
-            $this->assertFileExists($logoPath);
-        }
+        $this->assertSame('Text, image and speech generation through APIMart.', $metadata->getDescription());
+        $logoPath = $metadata->getLogoPath();
+        $this->assertNotNull($logoPath);
+        $this->assertStringEndsWith('assets/images/apimart.svg', $logoPath);
+        $this->assertFileExists($logoPath);
     }
 
     /**
@@ -74,10 +64,10 @@ class OpenAiProviderTest extends TestCase
      */
     public function testModelMetadataDirectory(): void
     {
-        $directory1 = OpenAiProvider::modelMetadataDirectory();
-        $directory2 = OpenAiProvider::modelMetadataDirectory();
+        $directory1 = ApimartProvider::modelMetadataDirectory();
+        $directory2 = ApimartProvider::modelMetadataDirectory();
 
-        $this->assertInstanceOf(OpenAiModelMetadataDirectory::class, $directory1);
+        $this->assertInstanceOf(ApimartModelMetadataDirectory::class, $directory1);
         $this->assertSame($directory1, $directory2);
     }
 
@@ -88,15 +78,15 @@ class OpenAiProviderTest extends TestCase
      */
     public function testProviderAvailability(): void
     {
-        $availability1 = OpenAiProvider::availability();
-        $availability2 = OpenAiProvider::availability();
+        $availability1 = ApimartProvider::availability();
+        $availability2 = ApimartProvider::availability();
 
         $this->assertInstanceOf(ListModelsApiBasedProviderAvailability::class, $availability1);
         $this->assertSame($availability1, $availability2);
     }
 
     /**
-     * Tests that createModel creates an OpenAiTextGenerationModel for text-generation capability.
+     * Tests that createModel creates an ApimartTextGenerationModel for text-generation capability.
      *
      * @return void
      */
@@ -111,34 +101,32 @@ class OpenAiProviderTest extends TestCase
 
         $model = $this->createModelViaProvider($modelMetadata);
 
-        $this->assertInstanceOf(OpenAiTextGenerationModel::class, $model);
+        $this->assertInstanceOf(ApimartTextGenerationModel::class, $model);
     }
 
     /**
-     * Tests that createModel creates an OpenAiImageGenerationModel for image-generation capability.
+     * Tests that createModel creates an ApimartImageGenerationModel for image-generation capability.
      *
      * @return void
      */
     public function testCreateModelWithImageGenerationCapability(): void
     {
         $modelMetadata = new ModelMetadata(
-            'dall-e-3',
-            'dall-e-3',
+            'gpt-image-1-official',
+            'gpt-image-1-official',
             [CapabilityEnum::imageGeneration()],
             []
         );
 
         $model = $this->createModelViaProvider($modelMetadata);
 
-        $this->assertInstanceOf(OpenAiImageGenerationModel::class, $model);
+        $this->assertInstanceOf(ApimartImageGenerationModel::class, $model);
     }
 
     /**
-     * Tests that createModel creates an OpenAiEmbeddingGenerationModel for embedding capability.
-     *
-     * @return void
+     * Embedding endpoints are not advertised until their APIMart contract is verified.
      */
-    public function testCreateModelWithEmbeddingGenerationCapability(): void
+    public function testCreateModelRejectsUnimplementedEmbeddingCapability(): void
     {
         $modelMetadata = new ModelMetadata(
             'text-embedding-3-small',
@@ -147,35 +135,27 @@ class OpenAiProviderTest extends TestCase
             []
         );
 
-        if (!interface_exists(EmbeddingGenerationModelInterface::class)) {
-            $this->expectException(RuntimeException::class);
-            $this->createModelViaProvider($modelMetadata);
-
-            return;
-        }
-
-        $model = $this->createModelViaProvider($modelMetadata);
-
-        $this->assertInstanceOf(OpenAiEmbeddingGenerationModel::class, $model);
+        $this->expectException(RuntimeException::class);
+        $this->createModelViaProvider($modelMetadata);
     }
 
     /**
-     * Tests that createModel creates an OpenAiTextToSpeechConversionModel for text-to-speech capability.
+     * Tests that createModel creates an ApimartTextToSpeechConversionModel for text-to-speech capability.
      *
      * @return void
      */
     public function testCreateModelWithTextToSpeechConversionCapability(): void
     {
         $modelMetadata = new ModelMetadata(
-            'tts-1',
-            'tts-1',
+            'gpt-4o-mini-tts',
+            'gpt-4o-mini-tts',
             [CapabilityEnum::textToSpeechConversion()],
             []
         );
 
         $model = $this->createModelViaProvider($modelMetadata);
 
-        $this->assertInstanceOf(OpenAiTextToSpeechConversionModel::class, $model);
+        $this->assertInstanceOf(ApimartTextToSpeechConversionModel::class, $model);
     }
 
     /**
@@ -194,7 +174,7 @@ class OpenAiProviderTest extends TestCase
 
         $model = $this->createModelViaProvider($modelMetadata);
 
-        $this->assertInstanceOf(OpenAiTextGenerationModel::class, $model);
+        $this->assertInstanceOf(ApimartTextGenerationModel::class, $model);
     }
 
     /**
@@ -213,7 +193,7 @@ class OpenAiProviderTest extends TestCase
 
         $model = $this->createModelViaProvider($modelMetadata);
 
-        $this->assertInstanceOf(OpenAiImageGenerationModel::class, $model);
+        $this->assertInstanceOf(ApimartImageGenerationModel::class, $model);
     }
 
     /**
@@ -257,14 +237,14 @@ class OpenAiProviderTest extends TestCase
     }
 
     /**
-     * Helper to invoke protected static createModel on OpenAiProvider.
+     * Helper to invoke protected static createModel on ApimartProvider.
      *
      * @param ModelMetadata $modelMetadata The model metadata.
      * @return ModelInterface The instantiated model.
      */
     private function createModelViaProvider(ModelMetadata $modelMetadata): ModelInterface
     {
-        $provider = new class extends OpenAiProvider {
+        $provider = new class extends ApimartProvider {
             public static function exposeCreateModel(
                 ModelMetadata $modelMetadata,
                 ProviderMetadata $providerMetadata
@@ -273,6 +253,6 @@ class OpenAiProviderTest extends TestCase
             }
         };
 
-        return $provider::exposeCreateModel($modelMetadata, OpenAiProvider::metadata());
+        return $provider::exposeCreateModel($modelMetadata, ApimartProvider::metadata());
     }
 }

@@ -12,5 +12,8 @@ plugin.php export-ignore
 /phpunit.xml.dist export-ignore
 /phpstan.neon.dist export-ignore
 /tests export-ignore
+/.idea export-ignore
+/scripts export-ignore
+/dist export-ignore
 
 /README.md export-ignore

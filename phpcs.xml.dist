@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
-<ruleset name="AI Provider for OpenAI Coding Standards">
-    <description>PSR-12 coding standards for AI Provider for OpenAI</description>
+<ruleset name="AI Provider for APIMart Coding Standards">
+    <description>PSR-12 coding standards for AI Provider for APIMart</description>
 
     <!-- Scan these files -->
     <file>src</file>

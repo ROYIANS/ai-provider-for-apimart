@@ -8,6 +8,10 @@ jobs:
   deploy:
     name: Deploy to WordPress.org
     runs-on: ubuntu-latest
+    # Enable only after this fork has its own WordPress.org listing and deployment secrets.
+    if: ${{ github.repository == 'ROYIANS/ai-provider-for-apimart' && vars.WPORG_DEPLOY_ENABLED == 'true' }}
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
@@ -17,4 +21,4 @@ jobs:
         env:
           SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
           SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
-          SLUG: ai-provider-for-openai
+          SLUG: ai-provider-for-apimart

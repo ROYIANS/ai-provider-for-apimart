@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - trunk
+      - 'codex/**'
   pull_request:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.sha }}
@@ -13,7 +14,6 @@ jobs:
   quality:
     name: Lint, static analysis, and distribution
     runs-on: ubuntu-24.04
-    if: ${{ github.repository == 'WordPress/ai-provider-for-openai' || github.event_name == 'pull_request' }}
     permissions:
       contents: read
     timeout-minutes: 15
@@ -31,6 +31,8 @@ jobs:
         uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # v4.0.0
       - name: Run lint and static analysis
         run: composer lint
+      - name: Validate Composer metadata
+        run: composer validate --strict
       - name: Verify Composer archive exclusions
         run: |
           git archive --format=tar HEAD > /tmp/ai-provider-composer.tar
@@ -45,18 +47,20 @@ jobs:
           rsync -a --exclude-from=.distignore ./ "$wporg_stage/"
           test ! -e "$wporg_stage/tests"
           test ! -e "$wporg_stage/phpunit.xml.dist"
+          test ! -e "$wporg_stage/.idea"
+          test ! -e "$wporg_stage/.phpunit.result.cache"
           test -e "$wporg_stage/plugin.php"
+          test -e "$wporg_stage/assets/images/apimart.svg"
   phpunit:
     name: PHPUnit (PHP ${{ matrix.php }}, ${{ matrix.dependencies }} dependencies)
     runs-on: ubuntu-24.04
-    if: ${{ github.repository == 'WordPress/ai-provider-for-openai' || github.event_name == 'pull_request' }}
     permissions:
       contents: read
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        php: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4']
+        php: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
         dependencies: [lowest, latest]
         include:
           - dependencies: lowest

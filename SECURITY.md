@@ -1,5 +1,5 @@
-# Reporting Security Issues
+# Reporting security issues
 
-The AI Provider for OpenAI plugin team and WordPress community take security bugs seriously. We appreciate your efforts to responsibly disclose your findings, and will make every effort to acknowledge your contributions.
+Report vulnerabilities in this independent APIMart fork privately to the repository maintainer through [GitHub's vulnerability reporting flow](https://github.com/ROYIANS/ai-provider-for-apimart/security/advisories/new), if enabled. If private reporting is unavailable, open an issue requesting a private contact without including exploit details, API keys, prompts, or private generated content.
 
-To report a security issue, please visit the [WordPress HackerOne](https://hackerone.com/wordpress) program.
+Upstream WordPress PHP AI Client issues should be reported through the upstream project's security policy. This fork is not covered by a claim that the WordPress HackerOne program accepts its reports.

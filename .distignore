@@ -12,3 +12,9 @@
 /README.md
 /tests
 /vendor
+/.idea
+/.phpunit.result.cache
+/docs
+/examples
+/scripts
+/dist

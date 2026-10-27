@@ -1,104 +1,64 @@
-=== AI Provider for OpenAI ===
-Contributors:      wordpressdotorg
-Tags:              ai, openai, gpt, artificial-intelligence, connector
+=== AI Provider for APIMart ===
+Contributors:      royians
+Tags:              ai, apimart, artificial-intelligence, connector
 Requires at least: 6.9
-Tested up to:      7.1
-Stable tag:        1.2.0
+Stable tag:        0.1.0
 Requires PHP:      7.4
 License:           GPL-2.0-or-later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
-AI Provider for OpenAI for the PHP AI Client SDK.
+APIMart text, image and speech integration for the PHP AI Client SDK.
 
 == Description ==
 
-This plugin provides OpenAI integration for the PHP AI Client SDK. It enables WordPress sites to use OpenAI's GPT models for text generation, DALL-E for image generation, and other AI capabilities.
+This independent fork of WordPress/ai-provider-for-openai registers APIMart as a separate provider for the WordPress PHP AI Client. It requires PHP AI Client 1.4.0 or later within major version 1.
 
-**Features:**
+* Non-streaming Chat Completions for models categorized as chat by APIMart.
+* Image input for chat models explicitly tagged Vision.
+* Asynchronous image generation and public-URL image editing with gpt-image-1-official and gpt-image-1.5-official.
+* Binary text-to-speech with gpt-4o-mini-tts, WAV by default.
+* Model discovery scoped to your API key, with separate authentication-aware catalog caches.
+* APIMart provider logo and automatic registration at init priority 5.
 
-* Text generation with GPT models
-* Image generation with DALL-E models
-* Function calling support
-* Web search support
-* Automatic provider registration
+Only models returned by your API key and supported by this adapter appear in the catalog. Video, embeddings, unknown models, other image/audio models, streaming, and provider-native web search are not exposed. Tools and JSON Schema mappings exist in the lower-level adapter, but are not advertised as universal catalog capabilities.
 
-Available models are dynamically discovered from the OpenAI API, including GPT models for text generation, DALL-E and GPT Image models for image generation, and TTS models for text-to-speech.
+The image call polls synchronously for up to 120 seconds by default. Download generated images before the individual expires_at timestamps returned in task metadata. Reference images and masks require public URLs; inline image uploads are not implemented. A local timeout does not cancel the remote task.
 
-**Requirements:**
-
-* PHP 7.4 or higher
-* For WordPress 6.9, the [wordpress/php-ai-client](https://github.com/WordPress/php-ai-client) package must be installed
-* For WordPress 7.0 and above, no additional changes are required
-* OpenAI API key
+This fork has automated mock-response coverage. Real API requests have not been verified with an APIMart key. Consult README.md and docs/compatibility.md in the source repository for the exact scope and setup examples.
 
 == Installation ==
 
-1. Upload the plugin files to `/wp-content/plugins/ai-provider-for-openai/`
-2. Activate the plugin through the 'Plugins' menu in WordPress
-3. Configure your OpenAI API key via the `OPENAI_API_KEY` environment variable or constant
+1. Ensure your WordPress environment loads PHP AI Client 1.4.0 or later within major version 1. The WordPress version alone does not establish SDK compatibility.
+2. Copy the plugin files to /wp-content/plugins/ai-provider-for-apimart/.
+3. Configure APIMART_API_KEY as an environment variable or constant.
+4. Activate the plugin. Registration safely returns if the compatible SDK is unavailable.
+5. Select APIMart in an application or plugin that uses the PHP AI Client.
 
 == Frequently Asked Questions ==
 
-= How do I get an OpenAI API key? =
+= Where do I get a key? =
 
-Visit the [OpenAI Platform](https://platform.openai.com/) to create an account and generate an API key.
+Use the [APIMart API Key Management Page](https://apimart.ai/keys).
 
-= Does this plugin work without the PHP AI Client? =
+= Is this an official WordPress, OpenAI or APIMart plugin? =
 
-No, this plugin requires the PHP AI Client plugin to be installed and activated. It provides the OpenAI-specific implementation that the PHP AI Client uses.
+This is an independent fork maintained at https://github.com/ROYIANS/ai-provider-for-apimart. Upstream work remains credited to the WordPress AI Team under GPL-2.0-or-later.
+
+= Does this work without PHP AI Client? =
+
+No. This plugin provides an adapter for PHP AI Client and does not install or load a duplicate SDK in WordPress.
 
 == Changelog ==
 
-= 1.2.0 - 2026-09-21 =
+= 0.1.0 =
 
-**Added**
+* Initial APIMart adaptation based on WordPress/ai-provider-for-openai.
+* Separate provider, package, plugin identity and user-supplied APIMart logo.
+* Chat Completions adapter, category-based model discovery, bounded asynchronous image polling, and documented TTS formats.
+* Mock protocol tests and fork CI. WordPress.org deployment requires explicit repository configuration.
 
-* Support for text to speech conversion ([#42](https://github.com/WordPress/ai-provider-for-openai/pull/42)).
-* PHPUnit CI matrix for `wordpress/php-ai-client` versions 1.3.1 and 1.4.0 ([#39](https://github.com/WordPress/ai-provider-for-openai/pull/39)).
-* WordPress Playground preview blueprint ([#46](https://github.com/WordPress/ai-provider-for-openai/pull/46)).
+== Upgrade Notice ==
 
-**Changed**
+= 0.1.0 =
 
-* Preserve reasoning items and reasoning token usage across multi-turn Responses API calls ([#26](https://github.com/WordPress/ai-provider-for-openai/pull/26)).
-
-= 1.1.0 - 2026-08-17 =
-
-**Added**
-
-* Support for OpenAI embedding models, including batch inputs, custom dimensions, token usage, and result metadata ([#34](https://github.com/WordPress/ai-provider-for-openai/pull/34)).
-* Support for fine-tuned OpenAI models by deriving capabilities from their underlying base models ([#17](https://github.com/WordPress/ai-provider-for-openai/pull/17)).
-* Support for editing and refining generated images using reference images and OpenAI’s image-editing endpoint ([#29](https://github.com/WordPress/ai-provider-for-openai/pull/29)).
-* A `TokenLimitReachedException` when OpenAI responses are incomplete because the maximum output-token limit was reached ([#10](https://github.com/WordPress/ai-provider-for-openai/pull/10)).
-
-**Changed**
-
-* Made sampling-option capabilities model-aware for reasoning models, added Responses API support for log probabilities, and reject incompatible sampling and reasoning configurations before sending a request ([#40](https://github.com/WordPress/ai-provider-for-openai/pull/40)).
-* Bumped WordPress tested-up-to version 7.1 ([#43](https://github.com/WordPress/ai-provider-for-openai/pull/43)).
-
-**Fixed**
-
-* Function-call name handling for names that do not meet OpenAI’s naming requirements, while preserving the original PHP AI Client function names returned to callers ([#31](https://github.com/WordPress/ai-provider-for-openai/pull/31)).
-
-= 1.0.3 =
-
-* Add a provider logo to the metadata if the client version > 1.3.0 ([#19](https://github.com/WordPress/ai-provider-for-openai/pull/19)).
-* Fix mapping of models that support multimodal inputs ([#22](https://github.com/WordPress/ai-provider-for-openai/pull/22)).
-
-= 1.0.2 =
-
-* Add plugin directory assets by @shaunandrews in https://github.com/WordPress/ai-provider-for-openai/pull/7
-* Update tags in readme.txt by @jeffpaul in https://github.com/WordPress/ai-provider-for-openai/pull/9
-* Fix missing input and output modality combinations. by @felixarntz in https://github.com/WordPress/ai-provider-for-openai/pull/11
-* Add provider description by @felixarntz in https://github.com/WordPress/ai-provider-for-openai/pull/12
-
-= 1.0.1 =
-
-* Initial release of the plugin
-* Support for GPT text generation models
-* Support for DALL-E image generation models
-* Function calling support
-* Web search support
-
-= 1.0.0 =
-
-* Initial release of the Composer package
+Independent APIMart fork. Uses APIMART_API_KEY and requires PHP AI Client 1.4.0+. No prior OpenAI provider configuration is migrated automatically.

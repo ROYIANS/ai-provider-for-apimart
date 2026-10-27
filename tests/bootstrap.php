@@ -1,11 +1,11 @@
 <?php
 
 /**
- * PHPUnit bootstrap file for the AI Provider for OpenAI package.
+ * PHPUnit bootstrap file for the AI Provider for APIMart package.
  *
- * @since 1.1.0
+ * @since 0.1.0
  *
- * @package WordPress\OpenAiAiProvider
+ * @package WordPress\ApimartAiProvider
  */
 
 declare(strict_types=1);

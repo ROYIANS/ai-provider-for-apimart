@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace WordPress\OpenAiAiProvider\Models;
+namespace WordPress\ApimartAiProvider\Models;
 
 use WordPress\AiClient\Common\Exception\InvalidArgumentException;
 use WordPress\AiClient\Files\DTO\File;
@@ -20,17 +20,17 @@ use WordPress\AiClient\Results\DTO\Candidate;
 use WordPress\AiClient\Results\DTO\GenerativeAiResult;
 use WordPress\AiClient\Results\DTO\TokenUsage;
 use WordPress\AiClient\Results\Enums\FinishReasonEnum;
-use WordPress\OpenAiAiProvider\Provider\OpenAiProvider;
+use WordPress\ApimartAiProvider\Provider\ApimartProvider;
 
 /**
- * Class for an OpenAI text-to-speech conversion model using the Audio Speech API.
+ * APIMart text-to-speech conversion using the binary Audio Speech API.
  *
  * Uses the `/audio/speech` endpoint to synthesize speech from text with models
- * such as `tts-1`, `tts-1-hd`, and `gpt-4o-mini-tts`.
+ * `gpt-4o-mini-tts`.
  *
- * @since 1.2.0
+ * @since 0.1.0
  */
-class OpenAiTextToSpeechConversionModel extends AbstractApiBasedModel implements
+class ApimartTextToSpeechConversionModel extends AbstractApiBasedModel implements
     TextToSpeechConversionModelInterface
 {
     /**
@@ -41,25 +41,25 @@ class OpenAiTextToSpeechConversionModel extends AbstractApiBasedModel implements
     /**
      * Default output MIME type used when none is configured.
      */
-    private const DEFAULT_MIME_TYPE = 'audio/mpeg';
+    private const DEFAULT_MIME_TYPE = 'audio/wav';
 
     /**
-     * Maps supported output MIME types to OpenAI `response_format` values.
+     * Maps the documented APIMart output MIME types to `response_format` values.
      *
      * @var array<string, string>
      */
     private const MIME_TYPE_TO_RESPONSE_FORMAT = [
-        'audio/mpeg' => 'mp3',
         'audio/ogg'  => 'opus',
         'audio/wav'  => 'wav',
         'audio/flac' => 'flac',
         'audio/aac'  => 'aac',
+        'audio/pcm'  => 'pcm',
     ];
 
     /**
      * {@inheritDoc}
      *
-     * @since 1.2.0
+     * @since 0.1.0
      */
     public function convertTextToSpeechResult(array $prompt): GenerativeAiResult
     {
@@ -70,7 +70,7 @@ class OpenAiTextToSpeechConversionModel extends AbstractApiBasedModel implements
 
         $request = new Request(
             HttpMethodEnum::POST(),
-            OpenAiProvider::url('audio/speech'),
+            ApimartProvider::url('audio/speech'),
             ['Content-Type' => 'application/json'],
             $params,
             $this->getRequestOptions()
@@ -89,7 +89,7 @@ class OpenAiTextToSpeechConversionModel extends AbstractApiBasedModel implements
     /**
      * Prepares the request parameters for the Audio Speech API.
      *
-     * @since 1.2.0
+     * @since 0.1.0
      *
      * @param list<Message> $prompt   The prompt messages containing the text.
      * @param string        $mimeType The resolved output MIME type.
@@ -98,6 +98,10 @@ class OpenAiTextToSpeechConversionModel extends AbstractApiBasedModel implements
     protected function prepareConvertParams(array $prompt, string $mimeType): array
     {
         $config = $this->getConfig();
+
+        if ($config->getOutputFileType() !== null && !$config->getOutputFileType()->isInline()) {
+            throw new InvalidArgumentException('APIMart speech returns inline audio files only.');
+        }
 
         $params = [
             'model'           => $this->metadata()->getId(),
@@ -124,6 +128,13 @@ class OpenAiTextToSpeechConversionModel extends AbstractApiBasedModel implements
             $params[$key] = $value;
         }
 
+        if (isset($params['speed'])) {
+            $speed = $params['speed'];
+            if ((!is_int($speed) && !is_float($speed)) || !is_finite((float) $speed) || $speed < 0.25 || $speed > 4) {
+                throw new InvalidArgumentException('Speech speed must be a number between 0.25 and 4.0.');
+            }
+        }
+
         return $params;
     }
 
@@ -133,7 +144,7 @@ class OpenAiTextToSpeechConversionModel extends AbstractApiBasedModel implements
      * The Audio Speech API accepts a single block of text, so this concatenates
      * the text parts found across the prompt messages.
      *
-     * @since 1.2.0
+     * @since 0.1.0
      *
      * @param list<Message> $prompt The prompt messages.
      * @return string The text to convert to speech.
@@ -145,15 +156,24 @@ class OpenAiTextToSpeechConversionModel extends AbstractApiBasedModel implements
         foreach ($prompt as $message) {
             foreach ($message->getParts() as $part) {
                 $partText = $part->getText();
-                if ($partText !== null) {
-                    $text .= ('' === $text ? '' : "\n") . $partText;
+                if ($partText === null) {
+                    throw new InvalidArgumentException('APIMart speech input must contain only text.');
                 }
+                $text .= ('' === $text ? '' : "\n") . $partText;
             }
         }
 
-        if ('' === $text) {
+        if ('' === trim($text, " \f\n\r\t\v\x00")) {
             throw new InvalidArgumentException(
                 'The prompt must contain text to convert to speech.'
+            );
+        }
+
+        // Count Unicode characters without requiring the optional mbstring extension.
+        $length = preg_match_all('/./us', $text);
+        if ($length === false || $length > 4096) {
+            throw new InvalidArgumentException(
+                'APIMart speech input must be valid UTF-8 with at most 4096 characters.'
             );
         }
 
@@ -163,21 +183,24 @@ class OpenAiTextToSpeechConversionModel extends AbstractApiBasedModel implements
     /**
      * Resolves the voice to use, falling back to the default.
      *
-     * @since 1.2.0
+     * @since 0.1.0
      *
      * @return string The voice identifier.
      */
     protected function prepareVoice(): string
     {
         $voice = $this->getConfig()->getOutputSpeechVoice();
-
-        return ($voice === null || '' === $voice) ? self::DEFAULT_VOICE : $voice;
+        $voice = ($voice === null || '' === $voice) ? self::DEFAULT_VOICE : $voice;
+        if (!in_array($voice, ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'], true)) {
+            throw new InvalidArgumentException(sprintf('The APIMart speech voice "%s" is not supported.', $voice));
+        }
+        return $voice;
     }
 
     /**
      * Resolves the output MIME type, defaulting and validating against supported types.
      *
-     * @since 1.2.0
+     * @since 0.1.0
      *
      * @return string A supported audio MIME type.
      * @throws InvalidArgumentException If the configured MIME type is unsupported.
@@ -207,7 +230,7 @@ class OpenAiTextToSpeechConversionModel extends AbstractApiBasedModel implements
      * The Audio Speech API returns raw audio bytes rather than JSON, so the body
      * is base64-encoded into an inline audio file.
      *
-     * @since 1.2.0
+     * @since 0.1.0
      *
      * @param Response $response The HTTP response containing raw audio bytes.
      * @param string   $mimeType The MIME type of the returned audio.
@@ -221,6 +244,23 @@ class OpenAiTextToSpeechConversionModel extends AbstractApiBasedModel implements
             throw ResponseException::fromMissingData(
                 $this->providerMetadata()->getName(),
                 'body'
+            );
+        }
+
+        // A gateway can return an application error with HTTP 200; never label JSON as audio.
+        $contentType = strtolower($response->getHeaderAsString('Content-Type') ?? '');
+        if (strpos($contentType, 'json') !== false || $response->getData() !== null) {
+            throw ResponseException::fromInvalidData(
+                $this->providerMetadata()->getName(),
+                'body',
+                'Expected binary audio but received JSON.'
+            );
+        }
+        if (strpos($contentType, 'text/') === 0) {
+            throw ResponseException::fromInvalidData(
+                $this->providerMetadata()->getName(),
+                'Content-Type',
+                'Expected binary audio but received text.'
             );
         }
 
@@ -244,12 +284,12 @@ class OpenAiTextToSpeechConversionModel extends AbstractApiBasedModel implements
      * The Audio Speech API does not return an identifier, so one is generated
      * locally for the result.
      *
-     * @since 1.2.0
+     * @since 0.1.0
      *
      * @return string The result identifier.
      */
     protected function generateResultId(): string
     {
-        return uniqid('openai-tts-', true);
+        return uniqid('apimart-tts-', true);
     }
 }

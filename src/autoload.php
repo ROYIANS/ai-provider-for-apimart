@@ -1,17 +1,17 @@
 <?php
 
 /**
- * PSR-4 autoloader for the AI Provider for OpenAI package.
+ * PSR-4 autoloader for the AI Provider for APIMart package.
  *
- * @since 1.0.0
+ * @since 0.1.0
  *
- * @package WordPress\OpenAiAiProvider
+ * @package WordPress\ApimartAiProvider
  */
 
 declare(strict_types=1);
 
 spl_autoload_register(static function (string $class): void {
-    $prefix = 'WordPress\\OpenAiAiProvider\\';
+    $prefix = 'WordPress\\ApimartAiProvider\\';
     $baseDir = __DIR__ . '/';
 
     $len = strlen($prefix);
