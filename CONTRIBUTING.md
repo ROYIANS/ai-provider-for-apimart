@@ -6,7 +6,9 @@ Use PHP 7.4-compatible syntax and PHP AI Client 1.3.1 APIs. Run `composer instal
 
 An APIMart catalog tag is not enough to establish an endpoint's request/response contract. Do not infer model capabilities solely from OpenAI naming patterns. Changes to the advertised catalog affect SDK model selection and need corresponding tests. Keep local polling settings out of outbound API bodies.
 
-Create a reviewable branch and pull request against this repository. Never commit API keys, generated vendor files, IDE settings, or generated result URLs containing secrets. The `.idea/` directory is ignored locally and excluded from distributions.
+Use `main` as the default branch for the maintained APIMart implementation. Create a reviewable `codex/<change-name>` branch from `main` and open a pull request targeting `main`. Release tags such as `v0.1.2` identify published versions and must not be moved. The inherited `trunk` branch is retained as an upstream reference, rather than an active APIMart development branch.
+
+Never commit API keys, generated vendor files, IDE settings, or generated result URLs containing secrets. The `.idea/` directory is ignored locally and excluded from distributions.
 
 For a WordPress package, run `bash scripts/build-plugin.sh`. It stages a copy using the exclusions in `.distignore`, keeps `plugin.php`, `src/`, the license and provider icon, and excludes tests, vendor and development files. The resulting ZIP is in the Git-ignored `dist/` directory and can be uploaded through the WordPress plugin installer. For a Composer archive, `.gitattributes` excludes WordPress bootstrap and development-only files. CI checks both layouts. Example commands and compatibility documentation are retained in Composer source distributions.
 
