@@ -23,7 +23,7 @@ Catalog caches are separated by API endpoint, authentication credentials and the
 - An [APIMart API key](https://apimart.ai/keys) with access to the selected models.
 - For standalone Composer usage, a working PSR-18 HTTP client, for example `guzzlehttp/guzzle`.
 
-This repository is an unreleased fork; no Packagist or WordPress.org publication is assumed. For a local Composer application, add this checkout as a path repository:
+Installable WordPress packages are available from [GitHub Releases](https://github.com/ROYIANS/ai-provider-for-apimart/releases). No Packagist or WordPress.org publication is assumed. For a local Composer application, add this checkout as a path repository:
 
 ```sh
 composer config repositories.apimart path /absolute/path/to/ai-provider-for-apimart
@@ -158,6 +158,8 @@ composer lint
 composer validate --strict
 ```
 
-PHPUnit uses fake transporters and does not require WordPress, a database or an API key. CI runs on this fork for `trunk`, `codex/**`, pull requests and manual dispatch, with lowest/latest dependency matrices on PHP 7.4–8.5. WordPress.org deployment uses the APIMart slug and stays disabled unless `WPORG_DEPLOY_ENABLED=true` is configured for this repository after its own listing and secrets are ready.
+The default branch, `main`, contains the maintained APIMart implementation. Develop changes on `codex/**` branches and submit pull requests to `main`; release tags identify published versions. The inherited `trunk` branch is retained as an upstream reference.
+
+PHPUnit uses fake transporters and does not require WordPress, a database or an API key. CI runs on this fork for `main`, `codex/**`, pull requests and manual dispatch, with lowest/latest dependency matrices on PHP 7.4–8.5. WordPress.org deployment uses the APIMart slug and stays disabled unless `WPORG_DEPLOY_ENABLED=true` is configured for this repository after its own listing and secrets are ready.
 
 See [local verification results](docs/validation.md) and [CONTRIBUTING.md](CONTRIBUTING.md) for distribution checks. Upstream code remains attributed to the WordPress AI Team; this fork and the user-supplied APIMart icon do not imply endorsement by WordPress, OpenAI or APIMart. Licensed under [GPL-2.0-or-later](LICENSE).
