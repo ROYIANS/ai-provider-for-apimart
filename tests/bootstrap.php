@@ -23,5 +23,14 @@ if (file_exists($composerAutoload)) {
     require_once $sdkAutoload;
 }
 
-// Load this package's classes.
-require_once dirname(__DIR__) . '/src/autoload.php';
+// Keep standalone tests independent of the WordPress-only plugin autoloader.
+spl_autoload_register(static function (string $class): void {
+    $prefix = 'WordPress\\ApimartAiProvider\\';
+    if (strncmp($class, $prefix, strlen($prefix)) !== 0) {
+        return;
+    }
+    $path = dirname(__DIR__) . '/src/' . str_replace('\\', '/', substr($class, strlen($prefix))) . '.php';
+    if (file_exists($path)) {
+        require $path;
+    }
+});

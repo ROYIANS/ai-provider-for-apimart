@@ -1,15 +1,15 @@
 # 本地验证记录
 
-日期：2026-10-27（Asia/Shanghai）。适配分支：`codex/apimart-provider`。当前版本：0.1.2。自动化测试不需要 WordPress、数据库或真实 API Key；另行运行了本地完整 WordPress 后台回归。
+日期：2026-10-27（Asia/Shanghai）。维护分支：`main`；0.1.3 修复分支：`codex/plugin-check-compliance`。当前验证版本：0.1.3。自动化测试不需要 WordPress、数据库或真实 API Key；另行运行了本地完整 WordPress 后台回归和官方 Plugin Check。
 
-本机没有原生 PHP/Composer，使用 Docker 隔离执行；未安装全局 PHP，也未使用 pnpm。主工作区 Composer lock 中 SDK 为 1.3.1，与 WordPress 7.0.3 内置版本一致。最低依赖与最新 SDK 的更新均在 `/tmp` 独立副本执行，没有用最新依赖覆盖主工作区。
+本机没有原生 PHP/Composer，使用 Docker 隔离执行；未安装全局 PHP，也未使用 pnpm。主工作区 Composer lock 中 SDK 为 1.3.1，与 WordPress 7.0.3 和 7.1.3 内置版本一致。最低依赖与最新 SDK 的更新均在独立临时副本执行，没有用最新依赖覆盖主工作区。
 
 | 环境 | SDK | PHPUnit | 结果 |
 | --- | --- | --- | --- |
-| PHP 7.4.33，主 lock | 1.3.1 | 9.6.35 | 271 tests / 1159 assertions，通过 |
-| PHP 8.5.12，主 lock | 1.3.1 | 9.6.35 | 271 tests / 1159 assertions，通过 |
-| PHP 8.5.12，最新可解析 SDK | 1.5.0 | 9.6.35 | 271 tests / 1159 assertions，通过 |
-| PHP 7.4.33，`--prefer-lowest --prefer-stable` | 1.3.1 | 9.6.33 | 271 tests / 1159 assertions，通过 |
+| PHP 7.4.33，主 lock | 1.3.1 | 9.6.35 | 273 tests / 1164 assertions，通过 |
+| PHP 8.5.12，主 lock | 1.3.1 | 9.6.35 | 273 tests / 1164 assertions，通过 |
+| PHP 8.5.12，最新可解析 SDK | 1.5.0 | 9.6.35 | 273 tests / 1164 assertions，通过 |
+| PHP 7.4.33，`--prefer-lowest --prefer-stable` | 1.3.1 | 9.6.33 | 273 tests / 1164 assertions，通过 |
 
 主 lock、SDK 1.5.0 和最低依赖环境均通过 PHPCS 和 PHPStan level max。PHPCS 检查 21 个源码、插件及测试文件；0.1.0 的 4 个独立示例文件额外通过 PHPCS。`composer validate --strict` 通过，`git diff --check` 通过。
 
@@ -20,16 +20,16 @@
 关键复现命令（在仓库根目录，将 `PWD` 替换为实际 checkout 路径亦可）：
 
 ```sh
-docker run --rm -e COMPOSER_ROOT_VERSION=dev-codex/apimart-provider \
+docker run --rm -e COMPOSER_ROOT_VERSION=dev-main \
   -v "$PWD:/app" -w /app composer:2 test
 
-docker run --rm -e COMPOSER_ROOT_VERSION=dev-codex/apimart-provider \
+docker run --rm -e COMPOSER_ROOT_VERSION=dev-main \
   -v "$PWD:/app" -w /app composer:2 lint
 
 docker run --rm --entrypoint php \
   -v "$PWD:/app" -w /app wordpress:cli-php7.4 vendor/bin/phpunit
 
-docker run --rm -e COMPOSER_ROOT_VERSION=dev-codex/apimart-provider \
+docker run --rm -e COMPOSER_ROOT_VERSION=dev-main \
   -v "$PWD:/app" -w /app composer:2 validate --strict
 ```
 
@@ -44,6 +44,7 @@ docker run --rm -e COMPOSER_ROOT_VERSION=dev-codex/apimart-provider \
 - SDK 1.3.1 注册下界、管理员依赖提示、权限与 HTML 转义；无效显式 API 地址跳过 APIMart 注册并显示提示，WordPress 继续启动。
 - 四个 API 域名的完整文本、图片任务和语音链路；环境变量/常量/WordPress 设置优先级、HTTPS 地址校验、尾斜线规范化、凭据页面与目录缓存隔离。
 - 后台 Settings API 注册、预设允许列表、非法输入、核心 nonce 表单、权限、输出转义，以及环境配置覆盖时保留已有选择。
+- 0.1.3 验证管理员权限错误中的翻译文本在 HTML 输出时转义，而 SDK 的错误仍保留原始文本；独立测试不依赖 WordPress 专用 autoloader。
 - 使用真实 SDK Registry、模型目录和 PromptBuilder 的文本/图像/语音三条完整链路；仅 HTTP 边界使用 fake transporter。
 
 ## WordPress 后台回归与域名检查
@@ -70,9 +71,26 @@ docker run --rm -e COMPOSER_ROOT_VERSION=dev-codex/apimart-provider \
 - 执行真实注册的 `wp_get_ability('ai/image-generation')->execute(...)`，确认选中 Flare、通过能力筛选、完成提交与轮询、无认证下载，并得到 68 字节的 inline PNG。外部计费生成请求为零。此项证明 WordPress 集成路径，不代表真实账户模型列表或线上生成质量。
 - WordPress 内置编辑发送 base64 参考图，而当前适配器输入仍要求公开 URL，因此内置编辑功能仍不兼容。通用 SDK 的公开 URL 编辑路径保持支持。
 
+## 官方 Plugin Check 与 WordPress 集成回归（0.1.3）
+
+官方 Plugin Check 2.1.0 对原 0.1.2 包完整复现了用户报告的 37 项：33 个错误、4 个警告。实际 0.1.3 ZIP 在独立 WordPress 7.0.3 和 7.1.3 站点上完成以下复检，stderr 均为空：
+
+| WordPress | PHP | 检查范围 | 结果 |
+| --- | --- | --- | --- |
+| 7.0.3 | 7.4.33 | 默认静态检查 | 0 错误、0 警告 |
+| 7.0.3 | 7.4.33 | 提前加载 CLI bootstrap 的静态及 runtime 检查 | 0 错误、0 警告 |
+| 7.1.3 | 7.4.33 | 默认静态检查 | 0 错误、0 警告 |
+| 7.1.3 | 7.4.33 | 提前加载 CLI bootstrap 的静态及 runtime 检查 | 0 错误、0 警告 |
+
+0.1.3 修复翻译字面量、管理员权限错误的 HTML 转义和 WordPress autoloader 的直接访问保护。`Tested up to: 7.1` 来自实际 WordPress 7.1.3 验证。SDK 文本异常、独立 Composer 使用的 URL 解析及只读提示标志按具体上下文添加行级规则注释；没有全局关闭检查。完整分类、处理理由和复现命令见 [plugin-check.md](plugin-check.md)。
+
+同一安装包在 WordPress 7.0.3 / 7.1.3 × PHP 7.4.33 / 8.5.12 四组环境中完成 Connector 与 AI 1.4.0 图片 Ability 集成回归，SDK 为内置 1.3.1。确认 Provider 注册且活跃、REST 模型列表含 `gpt-6-luna` 与全部 8 个图片 ID，真实执行 `ai/image-generation` 选择 `gpt-image-2.5-flare` 并得到 68 字节 inline PNG。认证目录、任务提交、轮询及图片下载由测试专用 WordPress HTTP fixture 接管，外部生成请求为零。
+
+新增的 Plugin Check CI 工作流使用官方 action 的固定提交，固定 WordPress 7.1.3、PHP 7.4 和 Plugin Check 2.1.0；检查按 `.distignore` 暂存的真实发行内容，运行全部默认静态及 runtime 检查，并使用 `strict: true` 阻断警告。通过工具检查不等于 WordPress.org 人工审核或真实 API 验收。
+
 ## 发行包
 
-0.1.0 初次检查使用独立临时 Git 副本构造工作区 tree，再以 `git archive` 检查 Composer 包；该检查没有修改真实 index，当时 Composer 包有 18 个文件，WordPress 包有 12 个文件。0.1.1 新增后台设置类，WordPress ZIP 有 13 个文件；0.1.2 新增共享图片能力配置，ZIP 为 14 个文件。Composer 包保留 Provider、模型、图标、许可证、兼容性文档和示例，排除 WordPress bootstrap、手动 autoloader、测试、IDE 与 CI 文件。
+0.1.0 初次检查使用独立临时 Git 副本构造工作区 tree，再以 `git archive` 检查 Composer 包；该检查没有修改真实 index，当时 Composer 包有 18 个文件，WordPress 包有 12 个文件。0.1.1 新增后台设置类，WordPress ZIP 有 13 个文件；0.1.2 新增共享图片能力配置，ZIP 为 14 个文件，0.1.3 保持这 14 个运行文件。Composer 包保留 Provider、模型、图标、许可证、兼容性文档和示例，排除 WordPress bootstrap、手动 autoloader、测试、IDE 与 CI 文件。
 
 WordPress 包通过 `rsync --exclude-from=.distignore` 暂存验证，包含 `plugin.php`、`src/autoload.php`、Provider/模型、后台设置类和 APIMart 图标，排除 vendor、tests、IDE 设置、PHPUnit 缓存、开发文档、静态分析 stubs 和示例。可通过 `bash scripts/build-plugin.sh` 重建带有 `ai-provider-for-apimart/` 顶层目录的可安装 ZIP，产物位于 `dist/`，不进入 Git 或后续打包内容。构建脚本会检查 ZIP 完整性并打印 SHA-256。
 

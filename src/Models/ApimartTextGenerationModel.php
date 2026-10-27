@@ -177,6 +177,8 @@ class ApimartTextGenerationModel extends AbstractOpenAiCompatibleTextGenerationM
             $message = is_array($error) && isset($error['message']) && is_string($error['message'])
                 ? $error['message']
                 : 'The API returned an error.';
+            // SDK exception data is escaped by consumers at the rendering boundary.
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
             throw new ResponseException('APIMart API error: ' . $message);
         }
         if (array_key_exists('code', $data)) {
@@ -184,6 +186,8 @@ class ApimartTextGenerationModel extends AbstractOpenAiCompatibleTextGenerationM
                 $message = isset($data['message']) && is_string($data['message'])
                     ? $data['message']
                     : 'The response contains an unsuccessful or invalid code.';
+                // SDK exception data is escaped by consumers at the rendering boundary.
+                // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
                 throw new ResponseException('APIMart API error: ' . $message);
             }
             if (!isset($data['data']) || !is_array($data['data']) || array_is_list($data['data'])) {
@@ -221,6 +225,8 @@ class ApimartTextGenerationModel extends AbstractOpenAiCompatibleTextGenerationM
                     if (isset($choice['message'][$field]) && !is_string($choice['message'][$field])) {
                         throw ResponseException::fromInvalidData(
                             'APIMart',
+                            // SDK exception data is escaped by consumers at the rendering boundary.
+                            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
                             'choices.message.' . $field,
                             'Expected text.'
                         );
@@ -273,6 +279,8 @@ class ApimartTextGenerationModel extends AbstractOpenAiCompatibleTextGenerationM
             if (isset($usage[$field]) && (!is_int($usage[$field]) || $usage[$field] < 0)) {
                 throw ResponseException::fromInvalidData(
                     'APIMart',
+                    // SDK exception data is escaped by consumers at the rendering boundary.
+                    // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
                     'usage.' . $field,
                     'Expected a non-negative integer.'
                 );

@@ -121,6 +121,8 @@ class ApimartTextToSpeechConversionModel extends AbstractApiBasedModel implement
                 throw new InvalidArgumentException(
                     sprintf(
                         'The custom option "%s" conflicts with an existing parameter.',
+                        // SDK exception data is escaped by consumers at the rendering boundary.
+                        // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
                         $key
                     )
                 );
@@ -192,6 +194,8 @@ class ApimartTextToSpeechConversionModel extends AbstractApiBasedModel implement
         $voice = $this->getConfig()->getOutputSpeechVoice();
         $voice = ($voice === null || '' === $voice) ? self::DEFAULT_VOICE : $voice;
         if (!in_array($voice, ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'], true)) {
+            // SDK exception data is escaped by consumers at the rendering boundary.
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
             throw new InvalidArgumentException(sprintf('The APIMart speech voice "%s" is not supported.', $voice));
         }
         return $voice;
@@ -216,6 +220,8 @@ class ApimartTextToSpeechConversionModel extends AbstractApiBasedModel implement
             throw new InvalidArgumentException(
                 sprintf(
                     'The output MIME type "%s" is not supported for text to speech.',
+                    // SDK exception data is escaped by consumers at the rendering boundary.
+                    // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
                     $mimeType
                 )
             );
@@ -242,6 +248,8 @@ class ApimartTextToSpeechConversionModel extends AbstractApiBasedModel implement
         $body = $response->getBody();
         if ($body === null || '' === $body) {
             throw ResponseException::fromMissingData(
+                // SDK exception data is escaped by consumers at the rendering boundary.
+                // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
                 $this->providerMetadata()->getName(),
                 'body'
             );
@@ -251,6 +259,8 @@ class ApimartTextToSpeechConversionModel extends AbstractApiBasedModel implement
         $contentType = strtolower($response->getHeaderAsString('Content-Type') ?? '');
         if (strpos($contentType, 'json') !== false || $response->getData() !== null) {
             throw ResponseException::fromInvalidData(
+                // SDK exception data is escaped by consumers at the rendering boundary.
+                // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
                 $this->providerMetadata()->getName(),
                 'body',
                 'Expected binary audio but received JSON.'
@@ -258,6 +268,8 @@ class ApimartTextToSpeechConversionModel extends AbstractApiBasedModel implement
         }
         if (strpos($contentType, 'text/') === 0) {
             throw ResponseException::fromInvalidData(
+                // SDK exception data is escaped by consumers at the rendering boundary.
+                // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
                 $this->providerMetadata()->getName(),
                 'Content-Type',
                 'Expected binary audio but received text.'

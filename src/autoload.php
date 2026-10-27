@@ -1,7 +1,7 @@
 <?php
 
 /**
- * PSR-4 autoloader for the AI Provider for APIMart package.
+ * WordPress plugin autoloader. Standalone applications use Composer's autoloader.
  *
  * @since 0.1.0
  *
@@ -9,6 +9,10 @@
  */
 
 declare(strict_types=1);
+
+if (!defined('ABSPATH')) {
+    return;
+}
 
 spl_autoload_register(static function (string $class): void {
     $prefix = 'WordPress\\ApimartAiProvider\\';

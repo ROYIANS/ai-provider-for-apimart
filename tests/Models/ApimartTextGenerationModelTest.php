@@ -292,6 +292,10 @@ class ApimartTextGenerationModelTest extends TestCase
         $badReason['choices'][0]['finish_reason'] = 'unknown';
         return [
             'API error in HTTP 200' => [['error' => ['message' => 'Insufficient balance']], 'Insufficient balance'],
+            'SDK errors remain text data' => [
+                ['error' => ['message' => 'Quota <limit> & balance "low"']],
+                'Quota <limit> & balance "low"',
+            ],
             'unsuccessful envelope code' => [['code' => 429, 'message' => 'Too many requests'], 'Too many requests'],
             'missing envelope data' => [['code' => 200], 'data'],
             'empty choices' => [['choices' => []], 'choices'],
