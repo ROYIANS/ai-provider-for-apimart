@@ -86,7 +86,7 @@ docker run --rm -e COMPOSER_ROOT_VERSION=dev-main \
 
 同一安装包在 WordPress 7.0.3 / 7.1.3 × PHP 7.4.33 / 8.5.12 四组环境中完成 Connector 与 AI 1.4.0 图片 Ability 集成回归，SDK 为内置 1.3.1。确认 Provider 注册且活跃、REST 模型列表含 `gpt-6-luna` 与全部 8 个图片 ID，真实执行 `ai/image-generation` 选择 `gpt-image-2.5-flare` 并得到 68 字节 inline PNG。认证目录、任务提交、轮询及图片下载由测试专用 WordPress HTTP fixture 接管，外部生成请求为零。
 
-新增的 Plugin Check CI 工作流使用官方 action 的固定提交，固定 WordPress 7.1.3、PHP 7.4 和 Plugin Check 2.1.0；检查按 `.distignore` 暂存的真实发行内容，运行全部默认静态及 runtime 检查，并使用 `strict: true` 阻断警告。通过工具检查不等于 WordPress.org 人工审核或真实 API 验收。
+新增的 Plugin Check CI 工作流使用官方 action 的固定提交，固定 WordPress 7.1.3、PHP 8.4 和 Plugin Check 2.1.0；检查按 `.distignore` 暂存的真实发行内容，运行全部默认静态及 runtime 检查，并使用 `strict: true` 阻断警告。通过工具检查不等于 WordPress.org 人工审核或真实 API 验收。
 
 ## 发行包
 

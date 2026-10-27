@@ -66,6 +66,8 @@ docker run --rm --user 0 -v "$WP_TEST_ROOT:/work" -w /work/wordpress \
 
 模型目录、异步提交、任务轮询和 CDN 下载由本地 `pre_http_request` fixture 提供固定响应，外部生成请求为零。该回归验证 WordPress 集成和请求响应流程，没有验证真实账户模型列表或真实服务的生成质量。
 
-`.github/workflows/plugin-check.yml` 在 `main`、`codex/**`、pull request 和手动触发时执行。它先用 `.distignore` 暂存发行内容并断言测试、vendor、Git 和开发配置没有进入包，再使用固定提交的官方 `WordPress/plugin-check-action`。环境固定为 WordPress 7.1.3、PHP 7.4 和 Plugin Check 2.1.0。action 提前加载 Plugin Check CLI bootstrap、激活目标插件，运行全部默认静态及 runtime 检查；`strict: true` 使警告同样阻断 CI。
+`.github/workflows/plugin-check.yml` 在 `main`、`codex/**`、pull request 和手动触发时执行。它先用 `.distignore` 暂存发行内容并断言测试、vendor、Git 和开发配置没有进入包，再使用固定提交的官方 `WordPress/plugin-check-action`。环境固定为 WordPress 7.1.3、PHP 8.4 和 Plugin Check 2.1.0。action 提前加载 Plugin Check CLI bootstrap、激活目标插件，运行全部默认静态及 runtime 检查；`strict: true` 使警告同样阻断 CI。
+
+PHP 7.4 的旧 Docker CLI 镜像内置 WP-CLI 2.7.1，不支持当前官方 action 读取的 `requires_plugins` 字段，因此独立检查 job 使用 PHP 8.4 的 CLI 环境。PHP 7.4 支持继续由单测矩阵及上述本地完整 Plugin Check 和 Ability 回归验证。
 
 本次修复使用新的 0.1.3 版本，不移动既有 `v0.1.2` 标签。工具检查通过不代表 WordPress.org 人工审核通过。自动化测试、安装包范围及仍未验证的线上行为见 [validation.md](validation.md)。
